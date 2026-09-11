@@ -1,0 +1,277 @@
+/* ═══════════════════════════════════════════════════════════════════
+   GODX ADMIN — Premium Panel 8.0 (responsive)
+   Deep-navy & gold identity · matches the user app design system
+   Class contract unchanged — drop-in replacement for admin.css
+   ═══════════════════════════════════════════════════════════════════ */
+:root{
+  --navy:#0D081F; --navy-2:#1B1040;
+  --p1:#7C3AED; --p2:#8B5CF6; --p3:#A78BFA;
+  --gold:#22D3EE; --gold-2:#67E8F9;
+  --grad:linear-gradient(135deg,#0D081F 0%,#2A1866 34%,#5B21B6 66%,#7C3AED 100%);
+  --grad-btn:linear-gradient(135deg,#5B21B6 0%,#7C3AED 52%,#8B5CF6 100%);
+  --grad-soft:linear-gradient(135deg,#F1ECFF,#E0F7FE);
+  --bg:#F4F3FB; --card:#fff; --ink:#17122E; --sub:#5B637E; --line:#E6E4F5;
+  --green:#0E9F6E; --green-bg:#E2F8EF; --red:#E5484D; --red-bg:#FDECEC;
+  --amber:#C07A05; --amber-bg:#FBF1DD; --blue:#2F6BEF; --blue-bg:#E9F0FE;
+  --shadow:0 1px 2px rgba(23,16,56,.05),0 8px 24px rgba(23,16,56,.07);
+  --ease:cubic-bezier(.22,1,.36,1);
+  --font-d:'Sora','Plus Jakarta Sans',system-ui,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+h1,h2,h3,h4,#page-title,.sc b,.modal h3{font-family:var(--font-d)}
+.hidden{display:none!important}
+button{font-family:inherit;border:0;background:none;cursor:pointer;color:inherit}
+.muted{color:var(--sub);font-size:.8rem}
+::selection{background:rgba(139,92,246,.22)}
+:focus-visible{outline:2px solid var(--p2);outline-offset:2px;border-radius:8px}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Login ── */
+#login-view{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
+  background:linear-gradient(135deg,#0A0518 0%,#241259 40%,#4C1D95 70%,#7C3AED 100%)}
+.login-card{background:#fff;border-radius:24px;padding:36px;width:100%;max-width:400px;text-align:center;
+  box-shadow:0 28px 70px rgba(0,0,0,.42);animation:fadeUp .5s var(--ease);
+  border-top:3px solid transparent;
+  background-image:linear-gradient(#fff,#fff),linear-gradient(120deg,#5B21B6,#8B5CF6 55%,#22D3EE);
+  background-origin:border-box;background-clip:padding-box,border-box}
+.login-logo{display:flex;justify-content:center;margin-bottom:12px;animation:fadeUp .5s .1s var(--ease) both;
+  filter:drop-shadow(0 10px 22px rgba(46,16,101,.3))}
+.login-card h1{font-size:1.4rem;font-weight:800;letter-spacing:-.3px}
+.login-card form{margin-top:20px;display:flex;flex-direction:column;gap:14px;text-align:left}
+.login-card label{font-size:.78rem;font-weight:700;color:var(--sub);display:flex;flex-direction:column;gap:6px}
+.login-card input,.field-in{border:1.5px solid var(--line);border-radius:10px;padding:11px 13px;width:100%;
+  font-size:.9rem;font-family:inherit;font-weight:600;outline:none;transition:.2s;background:#fff}
+.login-card input:focus,.field-in:focus{border-color:var(--p2);box-shadow:0 0 0 4px rgba(139,92,246,.12)}
+
+/* ── Buttons / chips ── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border-radius:12px;
+  padding:11px 18px;font-weight:700;font-size:.85rem;transition:.2s var(--ease)}
+.btn svg{width:16px;height:16px;flex-shrink:0}
+.btn:hover{opacity:.92;transform:translateY(-1px)}
+.btn:active{transform:scale(.96)}
+.btn-primary{background:var(--grad-btn);color:#fff;box-shadow:0 8px 20px rgba(124,58,237,.34)}
+.btn-green{background:var(--green-bg);color:var(--green)}
+.btn-red{background:var(--red-bg);color:var(--red)}
+.btn-soft{background:var(--blue-bg);color:var(--blue)}
+.btn-block{width:100%}
+.btn-sm{padding:7px 12px;font-size:.75rem;border-radius:8px}
+.btn:disabled{opacity:.5;pointer-events:none}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:700;padding:4px 10px;border-radius:999px;white-space:nowrap}
+.chip-green{background:var(--green-bg);color:var(--green)}
+.chip-amber{background:var(--amber-bg);color:var(--amber)}
+.chip-red{background:var(--red-bg);color:var(--red)}
+.chip-blue{background:var(--blue-bg);color:var(--blue)}
+
+/* ── Layout ── */
+#panel{display:flex;min-height:100vh}
+#sidebar{width:236px;background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column;
+  padding:18px 12px;position:sticky;top:0;height:100vh;flex-shrink:0;z-index:60}
+.sb-brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:1rem;padding:4px 8px 20px;font-family:var(--font-d);letter-spacing:.2px}
+#sb-nav{display:flex;flex-direction:column;gap:4px;flex:1;overflow-y:auto}
+.sb-item{display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:12px;font-weight:600;
+  font-size:.86rem;color:var(--sub);text-align:left;width:100%;transition:.2s var(--ease);white-space:nowrap}
+.sb-item .sb-ic{width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.sb-item .sb-ic svg{width:19px;height:19px}
+.sb-item.active{background:var(--grad-btn);color:#fff;box-shadow:0 8px 20px rgba(124,58,237,.34)}
+.sb-item:not(.active):hover{background:var(--bg)}
+.sb-badge{margin-left:auto;background:var(--red);color:#fff;font-size:.62rem;font-weight:800;
+  min-width:19px;height:19px;border-radius:99px;display:none;align-items:center;justify-content:center;padding:0 5px;
+  animation:pulse 2s infinite}
+.sb-badge.show{display:inline-flex}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.18)}}
+.sb-logout{color:var(--red);margin-top:8px;font-weight:700}
+
+#panel-main{flex:1;padding:22px 26px;min-width:0}
+#panel-top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+#panel-top h2{font-size:1.3rem;font-weight:800;letter-spacing:-.2px}
+.page{animation:fadeUp .35s var(--ease)}
+
+/* ── Dashboard ── */
+.stat-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:20px}
+.sc{background:#fff;border-radius:18px;padding:20px;box-shadow:var(--shadow);border:1px solid rgba(231,233,244,.9);transition:transform .2s var(--ease),box-shadow .25s}
+.sc:hover{transform:translateY(-3px);box-shadow:0 14px 34px rgba(23,16,56,.1)}
+.sc small{color:var(--sub);font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.6px}
+.sc b{display:block;font-size:clamp(1.2rem,2.4vw,1.55rem);font-weight:800;margin-top:7px;word-break:break-word;letter-spacing:-.3px}
+.sc .sc-sub{font-size:.7rem;color:var(--sub);margin-top:4px}
+.sc-hero{background:var(--grad);color:#fff;border:0}
+.sc-hero small{color:rgba(255,255,255,.8)}
+.sc-hero .sc-sub{color:rgba(255,255,255,.75)}
+
+/* ── Tables (responsive scroll) ── */
+.tbl-card{background:#fff;border-radius:18px;box-shadow:var(--shadow);border:1px solid rgba(231,233,244,.9);overflow:hidden;margin-bottom:18px;animation:fadeUp .35s var(--ease)}
+.tbl-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.tbl-head h3{font-size:.98rem;font-weight:800;letter-spacing:-.1px}
+.tbl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:.82rem;min-width:640px}
+th{text-align:left;padding:11px 18px;color:var(--sub);font-size:.66rem;text-transform:uppercase;
+  letter-spacing:.6px;border-bottom:1px solid var(--line);background:#FAFBFE;white-space:nowrap}
+td{padding:12px 18px;border-bottom:1px solid var(--line);font-weight:600;vertical-align:top}
+tr:last-child td{border-bottom:0}
+tbody tr:hover td,tr:hover td{background:#FAFBFE}
+.tbl-actions{display:flex;gap:6px;flex-wrap:wrap}
+.search-in{border:1.5px solid var(--line);border-radius:10px;padding:9px 13px;font-size:.83rem;
+  font-family:inherit;font-weight:600;outline:none;width:230px;max-width:100%}
+.search-in:focus{border-color:var(--p2);box-shadow:0 0 0 4px rgba(139,92,246,.12)}
+.empty{padding:40px 16px;text-align:center;color:var(--sub);font-weight:600;font-size:.85rem}
+.mini{font-size:.68rem;color:var(--sub);font-weight:600;display:block;margin-top:2px;word-break:break-all}
+.proof-btn{display:inline-flex;align-items:center;gap:5px;color:var(--blue);font-weight:700;font-size:.72rem;
+  background:var(--blue-bg);padding:5px 10px;border-radius:8px;margin-top:6px}
+
+/* ── Plan & payment-method cards (admin) ── */
+.plan-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.ap-card{background:#fff;border-radius:18px;padding:20px;box-shadow:var(--shadow);border:1px solid rgba(231,233,244,.9);animation:fadeUp .35s var(--ease)}
+.ap-card h4{font-size:1.02rem;font-weight:800;letter-spacing:-.1px}
+.ap-stats{display:flex;gap:8px;margin:12px 0}
+.ap-stat{flex:1;min-width:0;background:var(--bg);border-radius:10px;padding:9px 6px;text-align:center}
+.ap-stat small{display:block;font-size:.56rem;color:var(--sub);font-weight:700;text-transform:uppercase}
+.ap-stat b{font-size:.82rem;font-weight:800;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ap-actions{display:flex;gap:8px;flex-wrap:wrap}
+.pm-type{display:inline-flex;align-items:center;gap:5px}
+.pm-detail{background:var(--bg);border-radius:10px;padding:10px 12px;margin:10px 0;font-size:.78rem;line-height:1.7;font-weight:600;word-break:break-all}
+.pm-detail b{color:var(--p1)}
+
+/* ── Modal ── */
+.modal-back{position:fixed;inset:0;background:rgba(10,6,26,.58);z-index:80;display:flex;align-items:center;
+  justify-content:center;padding:20px;backdrop-filter:blur(4px);animation:bdin .25s}
+@keyframes bdin{from{opacity:0}}
+.modal{background:#fff;border-radius:22px;padding:26px;width:100%;max-width:480px;max-height:88vh;overflow-y:auto;
+  animation:up .3s var(--ease);box-shadow:0 26px 64px rgba(0,0,0,.34)}
+@keyframes up{from{opacity:0;transform:translateY(18px) scale(.97)}}
+.modal h3{font-size:1.1rem;font-weight:800;letter-spacing:-.2px;margin-bottom:4px}
+.modal .msub{font-size:.76rem;color:var(--sub);margin-bottom:16px;line-height:1.5}
+.frow{display:flex;flex-direction:column;gap:6px;margin-bottom:13px;min-width:0}
+.frow span{font-size:.75rem;font-weight:700;color:var(--sub)}
+.frow input,.frow textarea,.frow select{border:1.5px solid var(--line);border-radius:10px;padding:10px 13px;
+  font-size:.88rem;font-family:inherit;font-weight:600;outline:none;width:100%;background:#fff;transition:.2s}
+.frow input:focus,.frow textarea:focus,.frow select:focus{border-color:var(--p2);box-shadow:0 0 0 4px rgba(139,92,246,.1)}
+.frow textarea{resize:vertical;min-height:80px}
+.frow2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:480px){.frow2{grid-template-columns:1fr}}
+.proof-img{max-width:100%;border-radius:14px;box-shadow:var(--shadow);cursor:zoom-in;transition:transform .25s var(--ease)}
+.proof-img.zoom{transform:scale(1.7);cursor:zoom-out}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:.82rem;background:var(--bg);
+  border-radius:12px;padding:12px 14px;margin-bottom:14px}
+.kv span{color:var(--sub);font-weight:600;font-size:.72rem}
+.kv b{font-weight:700;word-break:break-all}
+
+/* ── Toast / spinner / skeleton ── */
+#toast-root{position:fixed;top:18px;right:18px;z-index:200;display:flex;flex-direction:column;gap:8px;max-width:calc(100vw - 36px)}
+.toast{background:#150D33;color:#fff;border-radius:14px;padding:13px 18px;font-size:.82rem;font-weight:700;
+  box-shadow:0 12px 30px rgba(0,0,0,.36);animation:tin .35s var(--ease);max-width:320px}
+.toast.ok{background:linear-gradient(135deg,#0E9F6E,#10C878)} .toast.err{background:linear-gradient(135deg,#E5484D,#F06)}
+@keyframes tin{from{opacity:0;transform:translateX(24px)}}
+.spinner{width:36px;height:36px;border:4px solid var(--line);border-top-color:var(--p1);border-radius:50%;
+  animation:spin .8s linear infinite;margin:36px auto}
+.skel{position:relative;overflow:hidden;background:#ECEAF8;border-radius:14px;height:80px;margin:12px 18px}
+.skel::after{content:'';position:absolute;inset:0;transform:translateX(-100%);
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.75),transparent);animation:shimmer 1.4s infinite}
+@keyframes shimmer{to{transform:translateX(100%)}}
+
+/* ── Responsive sidebar ── */
+@media(max-width:900px){
+  #panel-main{padding:16px 14px}
+  #sidebar{width:66px;padding:18px 8px}
+  .sb-brand span,.sb-item:not(.sb-logout) span:not(.sb-ic):not(.sb-badge),.sb-logout{font-size:0}
+  .sb-brand{justify-content:center;padding-bottom:16px}
+  .sb-item{justify-content:center;padding:12px}
+  .sb-item .sb-ic{width:auto}
+  .sb-badge{position:absolute;margin-left:24px;margin-top:-16px}
+  table{min-width:560px}
+}
+
+/* ═══════════ v8.0 — pro buttons + Support Chats ═══════════ */
+.btn{position:relative;overflow:hidden;isolation:isolate}
+.btn-primary::after{content:'';position:absolute;top:0;left:-90%;width:55%;height:100%;
+  background:linear-gradient(105deg,transparent,rgba(255,255,255,.4),transparent);
+  transform:skewX(-20deg);transition:left .55s var(--ease);pointer-events:none}
+.btn-primary:hover::after{left:135%}
+.btn-primary{box-shadow:0 8px 20px rgba(124,58,237,.34),inset 0 1.5px 0 rgba(255,255,255,.3)}
+.btn-primary:hover{box-shadow:0 12px 28px rgba(124,58,237,.46),inset 0 1.5px 0 rgba(255,255,255,.3)}
+
+/* ── Support chats list ── */
+.chat-rows{display:flex;flex-direction:column}
+.chat-row{display:flex;align-items:center;gap:13px;padding:14px 18px;border-bottom:1px solid var(--line);
+  cursor:pointer;transition:background .15s}
+.chat-row:hover{background:#FAFBFE}
+.chat-row:last-child{border-bottom:0}
+.cr-avatar{width:44px;height:44px;border-radius:14px;background:var(--grad-btn);color:#fff;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-weight:800;font-family:var(--font-d)}
+.cr-mid{flex:1;min-width:0}
+.cr-mid b{font-size:.9rem;font-weight:800;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cr-mid small{font-size:.72rem;color:var(--sub);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.cr-right{text-align:right;flex-shrink:0}
+.cr-right time{font-size:.64rem;color:var(--sub);display:block;margin-bottom:4px}
+.cr-dot{background:var(--red);color:#fff;font-size:.62rem;font-weight:800;min-width:19px;height:19px;
+  border-radius:99px;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;animation:pulse 2s infinite}
+
+/* ── Admin chat thread ── */
+.achat-head{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.achat-msgs{height:52vh;min-height:300px;overflow-y:auto;padding:18px 16px;background:var(--bg);
+  display:flex;flex-direction:column;gap:10px}
+.chat-msg{max-width:72%;padding:10px 13px;border-radius:16px;font-size:.84rem;font-weight:600;
+  line-height:1.5;word-break:break-word;animation:fadeUp .2s var(--ease)}
+.chat-msg.mine{align-self:flex-end;background:var(--grad-btn);color:#fff;border-bottom-right-radius:5px;
+  box-shadow:0 6px 16px rgba(124,58,237,.28)}
+.chat-msg.theirs{align-self:flex-start;background:#fff;border:1px solid var(--line);
+  border-bottom-left-radius:5px;box-shadow:var(--shadow)}
+.chat-time{display:block;font-size:.58rem;opacity:.72;margin-top:4px;text-align:right;font-weight:700}
+.chat-img{max-width:230px;border-radius:12px;display:block;margin-bottom:5px;cursor:zoom-in;transition:transform .25s var(--ease)}
+.chat-img.zoom{transform:scale(1.6);cursor:zoom-out}
+.chat-file{display:inline-flex;align-items:center;gap:8px;text-decoration:none;color:inherit;max-width:100%;
+  background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);padding:8px 11px;border-radius:11px;margin-bottom:5px;font-size:.78rem}
+.chat-msg.theirs .chat-file{background:var(--bg);border-color:var(--line);color:var(--p1)}
+.achat-compose{display:flex;gap:9px;padding:12px 16px;border-top:1px solid var(--line);background:#fff}
+.achat-compose .field-in{flex:1}
+.achat-closed{padding:13px 16px;background:var(--amber-bg);color:var(--amber);font-size:.78rem;
+  font-weight:700;border-top:1px solid #A5F3FC}
+
+/* ═══════════ v8.0 — daily interest page · chat polish · fixes ═══════════ */
+
+/* pending (not yet server-acknowledged) chat messages */
+.chat-msg.pending{opacity:.6}
+
+/* per-user investment blocks in the Users → Plans modal */
+.uinv{background:var(--bg);border:1px solid var(--line);border-radius:12px;
+  padding:12px 14px;margin-bottom:10px;font-size:.82rem}
+.uinv b{font-size:.88rem}
+.uinv .mini{margin-top:3px}
+
+/* numeric alignment for money columns */
+td b{font-variant-numeric:tabular-nums}
+
+/* interest page accent */
+#page-interest .tbl-card table td{vertical-align:middle}
+
+/* modal buttons keep their loading affordance */
+.btn.loading{color:transparent!important;pointer-events:none;position:relative}
+.btn.loading::after{content:'';position:absolute;width:16px;height:16px;border-radius:50%;
+  border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;animation:spin .7s linear infinite}
+.btn-soft.loading::after,.btn-green.loading::after,.btn-red.loading::after{
+  border-color:rgba(23,16,56,.18);border-top-color:var(--p1)}
+
+/* ── Reduced motion: honor user preference ── */
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
+
+/* ═══════════ v13.0 — Chat typing indicator · quick answers · modern fonts ═══════════ */
+body{font-family:'Outfit','Plus Jakarta Sans',system-ui,sans-serif}
+.chat-msg{white-space:pre-line}
+
+/* typing bubble (shown while the user is typing) */
+.chat-msg.typing{display:inline-flex;align-items:center;gap:5px;padding:11px 15px;max-width:none}
+.chat-msg.typing i{width:7px;height:7px;border-radius:50%;background:#94A3B8;flex-shrink:0;
+  animation:tyBounce 1.15s ease-in-out infinite}
+.chat-msg.typing i:nth-child(2){animation-delay:.16s}
+.chat-msg.typing i:nth-child(3){animation-delay:.32s}
+@keyframes tyBounce{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-4.5px);opacity:1}}
+.chat-row .cr-typing{color:var(--p1);font-weight:800}
+
+/* canned quick-answer chips in the admin reply box */
+.ac-quick{display:flex;gap:6px;flex-wrap:wrap;padding:8px 16px 0;background:#fff}
+.ac-quick button{font-size:.68rem;font-weight:800;color:var(--blue);background:var(--blue-bg);
+  border:1px solid rgba(47,107,239,.18);border-radius:99px;padding:5px 11px;transition:.15s var(--ease)}
+.ac-quick button:active{transform:scale(.93)}
