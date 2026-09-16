@@ -139,13 +139,15 @@ function goPage(p) {
   const titles = { dashboard: 'Dashboard', requests: 'Requests', payouts: 'Plan Payouts',
                    interest: 'Daily Interest', history: 'All Transactions', payments: 'Payment Methods',
                    users: 'Users', plans: 'Plans', announce: 'Announcements',
-                   chats: 'Support Chats', content: 'App Content',
+                   popup: 'Popup Message', chats: 'Support Chats', content: 'App Content',
+                   chart: 'Home Chart',
                    referral: 'Refer & Earn Settings', share: 'Share Settings',
                    limits: 'Wallet Limits' };
   $('#page-title').textContent = titles[p] || p;
   ({ dashboard: renderDashboard, requests: renderRequests, payouts: renderPayouts, interest: renderInterest,
      history: renderHistory, payments: renderPayments, users: renderUsers,
-     plans: renderPlans, announce: renderAnnounce, chats: renderChats, content: renderContent,
+     plans: renderPlans, announce: renderAnnounce, popup: renderPopup, chats: renderChats, content: renderContent,
+     chart: renderChartSettings,
      referral: renderReferralSettings, share: renderShareSettings,
      limits: renderWalletLimits })[p]();
 }
@@ -1180,6 +1182,296 @@ function annEditor() {
     } catch (e) { toast('Publish failed — try again', 'err'); }
     renderAnnounce();
   };
+}
+
+/* ══════════ POPUP MESSAGE (welcome modal in the user app) ══════════
+   Stored in appContent/popup — the user app listens live, so saving here
+   instantly shows / hides / edits the popup for every user. */
+async function renderPopup() {
+  const el = $('#page-popup');
+  el.innerHTML = '<div class="spinner"></div>';
+  let cfg = {};
+  try {
+    const d = await db.collection('appContent').doc('popup').get();
+    cfg = d.exists ? d.data() : {};
+  } catch (e) {}
+  const c = {
+    enabled: cfg.enabled === true,
+    title: cfg.title || '',
+    body: cfg.body || '',
+    icon: cfg.icon || '',
+    showOn: cfg.showOn || 'once',
+    pbLabel: (cfg.primaryBtn && cfg.primaryBtn.label) || '',
+    pbAction: (cfg.primaryBtn && cfg.primaryBtn.action) || 'close',
+    primaryUrl: cfg.primaryUrl || '',
+    sbLabel: (cfg.secondaryBtn && cfg.secondaryBtn.label) || ''
+  };
+  const actions = [
+    ['close', 'Just close the popup'],
+    ['plans', 'Open Plans tab'],
+    ['wallet', 'Open Wallet tab'],
+    ['deposit', 'Open Wallet → Add Money'],
+    ['support', 'Open Support chat'],
+    ['refer', 'Open Refer & Earn share sheet'],
+    ['url', 'Open a custom link (URL below)']
+  ];
+  el.innerHTML = `
+    <div class="tbl-card" style="border-left:4px solid var(--p1)">
+      <div class="tbl-head"><h3>🪟 Welcome Popup — user app</h3>
+        <span class="chip ${c.enabled ? 'chip-green' : 'chip-red'}">${c.enabled ? 'Visible to users' : 'Hidden'}</span></div>
+      <div style="padding:12px 18px" class="muted">
+        This message pops up when users open the user app. Toggle it <b>off</b> to hide it for everyone instantly,
+        edit any field and save to update it live — users who dismissed an older version will see the new one.
+      </div>
+    </div>
+
+    <div class="pop-grid">
+      <div class="tbl-card"><div class="tbl-head"><h3>Popup Content</h3></div>
+        <div style="padding:18px">
+          <div class="frow" style="flex-direction:row;align-items:center;justify-content:space-between;gap:12px">
+            <span style="font-size:.85rem;font-weight:700;color:var(--ink)">Show popup in the user app</span>
+            <label class="gxswitch"><input type="checkbox" id="pp-enabled" ${c.enabled ? 'checked' : ''}><i></i></label></div>
+          <div class="frow2">
+            <div class="frow"><span>Icon (one emoji — optional)</span>
+              <input class="field-in" id="pp-icon" value="${esc(c.icon)}" maxlength="4" placeholder="🎉"></div>
+            <div class="frow"><span>Show popup</span>
+              <select class="field-in" id="pp-showon">
+                <option value="once" ${c.showOn === 'once' ? 'selected' : ''}>Once per message version</option>
+                <option value="every" ${c.showOn === 'every' ? 'selected' : ''}>Every time the app opens</option>
+              </select></div>
+          </div>
+          <div class="frow"><span>Title</span>
+            <input class="field-in" id="pp-title" value="${esc(c.title)}" placeholder="🎉 Weekend interest boost!"></div>
+          <div class="frow"><span>Message</span>
+            <textarea class="field-in" id="pp-body" style="min-height:110px;white-space:pre-wrap" placeholder="Write a short, friendly message…">${esc(c.body)}</textarea></div>
+
+          <div class="tbl-head" style="margin:6px -18px 0;padding:14px 18px;border-top:1px solid #EEF0F7"><h3 style="font-size:.9rem">Primary Button</h3></div>
+          <div class="frow2" style="margin-top:14px">
+            <div class="frow"><span>Button label (empty = no button)</span>
+              <input class="field-in" id="pp-pb-label" value="${esc(c.pbLabel)}" placeholder="Explore Plans"></div>
+            <div class="frow"><span>Button action</span>
+              <select class="field-in" id="pp-pb-action">
+                ${actions.map(([v, t]) => `<option value="${v}" ${c.pbAction === v ? 'selected' : ''}>${t}</option>`).join('')}
+              </select></div>
+          </div>
+          <div class="frow" id="pp-url-row" style="display:${c.pbAction === 'url' ? '' : 'none'}"><span>Button link (https://…)</span>
+            <input class="field-in" id="pp-url" value="${esc(c.primaryUrl)}" placeholder="https://godx.app/offer"></div>
+
+          <div class="frow"><span>Secondary button label (optional — always just closes)</span>
+            <input class="field-in" id="pp-sb-label" value="${esc(c.sbLabel)}" placeholder="Maybe later"></div>
+
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
+            <button class="btn btn-primary" id="pp-save" style="flex:1;min-width:150px">Save & Publish</button>
+            <button class="btn ${c.enabled ? 'btn-red' : 'btn-green'}" id="pp-toggle" style="flex:1;min-width:150px">${c.enabled ? 'Hide from users now' : 'Show to users now'}</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tbl-card"><div class="tbl-head"><h3>Live Preview</h3></div>
+        <div style="padding:22px 18px;display:flex;justify-content:center;background:radial-gradient(420px 200px at 50% -60px,rgba(124,58,237,.10),transparent 70%)">
+          <div class="ppv-card">
+            <div class="ppv-ic" id="ppv-ic">✨</div>
+            <div class="ppv-title" id="ppv-title">Popup title</div>
+            <p class="ppv-body" id="ppv-body">Popup message preview…</p>
+            <div class="ppv-btns">
+              <span class="ppv-btn ppv-primary" id="ppv-pb" style="display:none"></span>
+              <span class="ppv-btn ppv-soft" id="ppv-sb" style="display:none"></span>
+            </div>
+          </div>
+        </div>
+        <div style="padding:0 18px 16px" class="muted" id="pp-status-line">${cfg.updatedAt ? 'Last updated ' + fdate(cfg.updatedAt) : 'Not configured yet — saving creates it.'}</div>
+      </div>
+    </div>`;
+
+  /* live preview */
+  const drawPreview = () => {
+    $('#ppv-ic').textContent = $('#pp-icon').value.trim() || '✨';
+    $('#ppv-title').textContent = $('#pp-title').value.trim() || 'Popup title';
+    $('#ppv-body').textContent = $('#pp-body').value.trim() || 'Popup message preview…';
+    const pl = $('#pp-pb-label').value.trim(), sl = $('#pp-sb-label').value.trim();
+    const pb = $('#ppv-pb'), sb = $('#ppv-sb');
+    pb.style.display = pl ? '' : 'none'; pb.textContent = pl;
+    sb.style.display = sl ? '' : 'none'; sb.textContent = sl;
+  };
+  ['pp-icon','pp-title','pp-body','pp-pb-label','pp-sb-label'].forEach(id => { $('#' + id).oninput = drawPreview; });
+  $('#pp-pb-action').onchange = () => {
+    $('#pp-url-row').style.display = $('#pp-pb-action').value === 'url' ? '' : 'none';
+  };
+  drawPreview();
+
+  const collect = () => {
+    const data = {
+      enabled: $('#pp-enabled').checked,
+      icon: $('#pp-icon').value.trim(),
+      showOn: $('#pp-showon').value,
+      title: $('#pp-title').value.trim(),
+      body: $('#pp-body').value.trim(),
+      primaryBtn: null, secondaryBtn: null, primaryUrl: '',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    const pl = $('#pp-pb-label').value.trim();
+    if (pl) data.primaryBtn = { label: pl, action: $('#pp-pb-action').value };
+    if (pl && data.primaryBtn.action === 'url') data.primaryUrl = $('#pp-url').value.trim();
+    const sl = $('#pp-sb-label').value.trim();
+    if (sl) data.secondaryBtn = { label: sl };
+    return data;
+  };
+
+  const save = async btn => {
+    const data = collect();
+    if (data.enabled && !data.title && !data.body)
+      return toast('Add a title or message — or turn the popup off', 'err');
+    if (data.primaryBtn && data.primaryBtn.action === 'url' && !/^https?:\/\//i.test(data.primaryUrl))
+      return toast('Button link must start with https://', 'err');
+    btn.classList.add('loading'); btn.disabled = true;
+    try {
+      await db.collection('appContent').doc('popup').set(data, { merge: true });
+      toast(data.enabled ? 'Popup published — showing in the user app now!' : 'Popup hidden — users will no longer see it', 'ok');
+      renderPopup();
+    } catch (e) {
+      btn.classList.remove('loading'); btn.disabled = false;
+      toast('Save failed — ' + (e && e.message ? e.message : 'try again'), 'err');
+    }
+  };
+  $('#pp-save').onclick = () => save($('#pp-save'));
+  $('#pp-toggle').onclick = () => {
+    $('#pp-enabled').checked = !$('#pp-enabled').checked;
+    save($('#pp-toggle'));
+  };
+}
+
+/* ══════════ HOME CHART (growth graph on the user app Home tab) ══════════
+   Stored in appContent/chart — the user app listens live, so saving here
+   instantly re-draws the "growth outlook" graph for every user. */
+async function renderChartSettings() {
+  const el = $('#page-chart');
+  el.innerHTML = '<div class="spinner"></div>';
+  let cfg = {};
+  try {
+    const d = await db.collection('appContent').doc('chart').get();
+    cfg = d.exists ? d.data() : {};
+  } catch (e) {}
+  const c = {
+    enabled: cfg.enabled !== false,
+    title: cfg.title || '1-Year Growth Outlook',
+    subtitle: cfg.subtitle || '',
+    principal: Number(cfg.principal) || 10000,
+    months: Number(cfg.months) || 12,
+    godxRate: cfg.godxRate != null ? Number(cfg.godxRate) : 24,
+    otherRate: cfg.otherRate != null ? Number(cfg.otherRate) : 6.5,
+    legendGodx: cfg.legendGodx || 'GodX · daily interest',
+    legendOther: cfg.legendOther || 'Other platforms · FD avg',
+    note: cfg.note || ''
+  };
+  el.innerHTML = `
+    <div class="tbl-card" style="border-left:4px solid var(--p1)">
+      <div class="tbl-head"><h3>📈 Home Chart — growth graph shown to users</h3>
+        <span class="chip ${c.enabled ? 'chip-green' : 'chip-red'}">${c.enabled ? 'Visible to users' : 'Hidden'}</span></div>
+      <div style="padding:12px 18px" class="muted">
+        This is the <b>"outcome of investment"</b> graph on the user app's Home tab — it compares what the same
+        deposit becomes with GodX vs other platforms. Edit any number or label and save — every user's
+        chart re-draws live. Toggle it <b>off</b> to hide the whole card instantly.
+      </div>
+    </div>
+
+    <div class="pop-grid">
+      <div class="tbl-card"><div class="tbl-head"><h3>Chart Settings</h3></div>
+        <div style="padding:18px">
+          <div class="frow" style="flex-direction:row;align-items:center;justify-content:space-between;gap:12px">
+            <span style="font-size:.85rem;font-weight:700;color:var(--ink)">Show chart on the Home tab</span>
+            <label class="gxswitch"><input type="checkbox" id="ch-enabled" ${c.enabled ? 'checked' : ''}><i></i></label></div>
+          <div class="frow2">
+            <div class="frow"><span>Card title</span>
+              <input class="field-in" id="ch-title" value="${esc(c.title)}" placeholder="1-Year Growth Outlook"></div>
+            <div class="frow"><span>Subtitle (empty = auto)</span>
+              <input class="field-in" id="ch-subtitle" value="${esc(c.subtitle)}" placeholder="Same ₹10,000 — very different outcome"></div>
+          </div>
+          <div class="frow2">
+            <div class="frow"><span>Deposit amount shown (₹)</span>
+              <input class="field-in" id="ch-principal" type="number" min="100" step="100" value="${c.principal}"></div>
+            <div class="frow"><span>Duration (months)</span>
+              <input class="field-in" id="ch-months" type="number" min="1" max="120" step="1" value="${c.months}"></div>
+          </div>
+          <div class="frow2">
+            <div class="frow"><span>GodX return (% per year)</span>
+              <input class="field-in" id="ch-godx" type="number" min="0" max="100" step="0.1" value="${c.godxRate}"></div>
+            <div class="frow"><span>Other platforms (% per year)</span>
+              <input class="field-in" id="ch-other" type="number" min="0" max="100" step="0.1" value="${c.otherRate}"></div>
+          </div>
+          <div class="frow2">
+            <div class="frow"><span>Legend — GodX line</span>
+              <input class="field-in" id="ch-lg-godx" value="${esc(c.legendGodx)}"></div>
+            <div class="frow"><span>Legend — other line</span>
+              <input class="field-in" id="ch-lg-other" value="${esc(c.legendOther)}"></div>
+          </div>
+          <div class="frow"><span>Footnote (empty = auto)</span>
+            <textarea class="field-in" id="ch-note" style="min-height:70px" placeholder="Illustrative projection…">${esc(c.note)}</textarea></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
+            <button class="btn btn-primary" id="ch-save" style="flex:1;min-width:150px">Save &amp; Publish</button>
+            <button class="btn ${c.enabled ? 'btn-red' : 'btn-green'}" id="ch-toggle" style="flex:1;min-width:150px">${c.enabled ? 'Hide from users now' : 'Show to users now'}</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tbl-card"><div class="tbl-head"><h3>Live Preview</h3></div>
+        <div style="padding:22px 18px">
+          <div class="ppv-card" style="text-align:left">
+            <div class="ppv-title" id="chv-title" style="font-size:1rem"></div>
+            <p class="ppv-body" id="chv-sub" style="min-height:0"></p>
+            <div id="chv-win" style="margin-top:10px;border-radius:12px;padding:10px 12px;background:#ECFDF5;border:1px solid #A7F3D0;font-size:.78rem;font-weight:600;color:#065F46;line-height:1.5"></div>
+            <p class="ppv-body" id="chv-note" style="margin-top:10px;font-size:.62rem;color:#94A3B8"></p>
+          </div>
+        </div>
+        <div style="padding:0 18px 16px" class="muted">${cfg.updatedAt ? 'Last updated ' + fdate(cfg.updatedAt) : 'Not configured yet — defaults (₹10,000 · 12 months · 24% vs 6.5%) are used until you save.'}</div>
+      </div>
+    </div>`;
+
+  const inr0 = v => '₹' + Math.round(v).toLocaleString('en-IN');
+  const drawPreview = () => {
+    const P = Math.max(100, Number($('#ch-principal').value) || 10000);
+    const M = Math.min(120, Math.max(1, Math.round(Number($('#ch-months').value) || 12)));
+    const g = Math.min(100, Math.max(0, Number($('#ch-godx').value) || 0));
+    const o = Math.min(100, Math.max(0, Number($('#ch-other').value) || 0));
+    const endG = P * Math.pow(1 + g / 100 / 365, 365);   // daily-compounded over the full duration
+    const endO = P * (1 + o / 100);                       // simple accrual over the full duration
+    const per = M % 12 === 0 ? (M / 12) + (M === 12 ? ' year' : ' years') : M + ' months';
+    $('#chv-title').textContent = $('#ch-title').value.trim() || 'Growth Outlook';
+    $('#chv-sub').textContent = $('#ch-subtitle').value.trim() || ('Same ' + inr0(P) + ' — very different outcome');
+    $('#chv-win').innerHTML = inr0(P) + ' becomes <b>' + inr0(endG) + '</b> with GodX — <b>+' + inr0(endG - endO) + '</b> more than other platforms in ' + per;
+    $('#chv-note').textContent = $('#ch-note').value.trim() ||
+      ('Illustrative projection over ' + M + ' months: GodX plan at ' + g + '%/yr, credited & compounded daily, vs ~' + o + '% p.a. typical FD / savings average.');
+  };
+  ['ch-title', 'ch-subtitle', 'ch-principal', 'ch-months', 'ch-godx', 'ch-other', 'ch-note']
+    .forEach(id => { $('#' + id).oninput = drawPreview; });
+  drawPreview();
+
+  const collect = () => ({
+    enabled: $('#ch-enabled').checked,
+    title: $('#ch-title').value.trim(),
+    subtitle: $('#ch-subtitle').value.trim(),
+    principal: Math.max(100, Number($('#ch-principal').value) || 10000),
+    months: Math.min(120, Math.max(1, Math.round(Number($('#ch-months').value) || 12))),
+    godxRate: Math.min(100, Math.max(0, Number($('#ch-godx').value) || 0)),
+    otherRate: Math.min(100, Math.max(0, Number($('#ch-other').value) || 0)),
+    legendGodx: $('#ch-lg-godx').value.trim(),
+    legendOther: $('#ch-lg-other').value.trim(),
+    note: $('#ch-note').value.trim(),
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+  const save = async btn => {
+    const data = collect();
+    btn.classList.add('loading'); btn.disabled = true;
+    try {
+      await db.collection('appContent').doc('chart').set(data, { merge: true });
+      toast(data.enabled ? 'Chart published — live on every user\'s Home tab!' : 'Chart hidden — users will no longer see it', 'ok');
+      renderChartSettings();
+    } catch (e) {
+      btn.classList.remove('loading'); btn.disabled = false;
+      toast('Save failed — ' + (e && e.message ? e.message : 'try again'), 'err');
+    }
+  };
+  $('#ch-save').onclick = () => save($('#ch-save'));
+  $('#ch-toggle').onclick = () => { $('#ch-enabled').checked = !$('#ch-enabled').checked; save($('#ch-toggle')); };
 }
 
 /* ══════════ APP CONTENT (trust strip, about) ══════════ */
