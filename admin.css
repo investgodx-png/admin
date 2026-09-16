@@ -275,3 +275,39 @@ body{font-family:'Outfit','Plus Jakarta Sans',system-ui,sans-serif}
 .ac-quick button{font-size:.68rem;font-weight:800;color:var(--blue);background:var(--blue-bg);
   border:1px solid rgba(47,107,239,.18);border-radius:99px;padding:5px 11px;transition:.15s var(--ease)}
 .ac-quick button:active{transform:scale(.93)}
+
+/* ═══════════ v21 — Popup Message editor (welcome popup in user app) ═══════════ */
+.pop-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:18px;align-items:start}
+@media(max-width:980px){.pop-grid{grid-template-columns:1fr}}
+
+/* iOS-style toggle switch */
+.gxswitch{position:relative;display:inline-block;flex-shrink:0}
+.gxswitch input{position:absolute;opacity:0;width:100%;height:100%;cursor:pointer;z-index:2;margin:0}
+.gxswitch i{display:block;width:50px;height:29px;border-radius:99px;background:#E2E8F0;
+  position:relative;transition:background .25s var(--ease);box-shadow:inset 0 1.5px 4px rgba(15,23,42,.12)}
+.gxswitch i::after{content:'';position:absolute;top:3px;left:3px;width:23px;height:23px;border-radius:50%;
+  background:#fff;box-shadow:0 2px 6px rgba(15,23,42,.25);transition:transform .25s cubic-bezier(.2,1.2,.4,1)}
+.gxswitch input:checked+i{background:linear-gradient(135deg,#7C3AED,#06B6D4)}
+.gxswitch input:checked+i::after{transform:translateX(21px)}
+
+/* live preview — mirrors the user app's .gxp-card look */
+.ppv-card{width:100%;max-width:310px;border-radius:26px;padding:26px 18px 20px;text-align:center;
+  background:linear-gradient(#fff,#fff) padding-box,
+    linear-gradient(150deg,rgba(124,58,237,.7),rgba(6,182,212,.35) 45%,rgba(124,58,237,.5)) border-box;
+  border:1.5px solid transparent;
+  box-shadow:0 24px 56px rgba(49,29,100,.3),0 0 40px rgba(124,58,237,.12);
+  animation:fadeUp .4s var(--ease)}
+.ppv-ic{width:62px;height:62px;margin:0 auto 13px;border-radius:19px;font-size:1.7rem;line-height:1;
+  background:linear-gradient(135deg,#312E81,#6D28D9 55%,#06B6D4);color:#fff;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 12px 26px rgba(124,58,237,.4),inset 0 2px 0 rgba(255,255,255,.35)}
+.ppv-title{font-size:1.1rem;font-weight:800;font-family:'Sora',sans-serif;
+  background:linear-gradient(120deg,#0B1026 30%,#6D28D9);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.ppv-body{margin:8px 0 0;font-size:.8rem;line-height:1.6;color:var(--sub);white-space:pre-line}
+.ppv-btns{display:flex;flex-direction:column;gap:8px;margin-top:16px}
+.ppv-btn{display:block;padding:11px 14px;border-radius:13px;font-weight:800;font-size:.8rem}
+.ppv-primary{background:linear-gradient(135deg,#312E81,#6D28D9 45%,#06B6D4);color:#fff;
+  box-shadow:0 9px 20px rgba(124,58,237,.4),inset 0 1.5px 0 rgba(255,255,255,.4)}
+.ppv-soft{background:linear-gradient(135deg,#F5F3FF,#ECFEFF);color:var(--p1);
+  box-shadow:inset 0 0 0 1.5px rgba(124,58,237,.22)}
