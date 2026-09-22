@@ -142,14 +142,16 @@ function goPage(p) {
                    popup: 'Popup Message', chats: 'Support Chats', content: 'App Content',
                    chart: 'Home Chart',
                    referral: 'Refer & Earn Settings', share: 'Share Settings',
-                   limits: 'Wallet Limits' };
+                   limits: 'Wallet Limits',
+                   register: 'Register Bonus', login: 'Login Bonus' };
   $('#page-title').textContent = titles[p] || p;
   ({ dashboard: renderDashboard, requests: renderRequests, payouts: renderPayouts, interest: renderInterest,
      history: renderHistory, payments: renderPayments, users: renderUsers,
      plans: renderPlans, announce: renderAnnounce, popup: renderPopup, chats: renderChats, content: renderContent,
      chart: renderChartSettings,
      referral: renderReferralSettings, share: renderShareSettings,
-     limits: renderWalletLimits })[p]();
+     limits: renderWalletLimits,
+     register: renderRegisterBonus, login: renderLoginBonus })[p]();
 }
 
 function watchPendingBadge() {
@@ -355,7 +357,9 @@ async function renderDashboard() {
   tx.forEach(d => { const t = d.data();
     if (t.type === 'deposit' && t.status === 'completed') deposits += t.amount || 0;
     if (t.type === 'withdraw' && t.status === 'completed') withdrawn += t.amount || 0;
-    if (t.type === 'cashback' || t.type === 'interest') interestPaidOut += t.amount || 0;
+    // FIX: include 'bonus' (register + daily-login bonuses) — they were invisible
+    // in the dashboard totals even though users received them.
+    if (t.type === 'cashback' || t.type === 'interest' || t.type === 'bonus') interestPaidOut += t.amount || 0;
     if (t.status === 'pending') pending++;
   });
   let activePlans = 0, locked = 0, accruedLiability = 0;
@@ -377,7 +381,7 @@ async function renderDashboard() {
       <div class="sc"><small>Withdrawn</small><b>${inr(withdrawn)}</b>
         <div class="sc-sub">Paid out to users</div></div>
       <div class="sc"><small>Interest Given</small><b>${inr2(interestPaidOut)}</b>
-        <div class="sc-sub">Daily credits + rewards</div></div>
+        <div class="sc-sub">Daily credits + rewards + bonuses</div></div>
       <div class="sc"><small>Interest Liability</small><b>${inr2(accruedLiability)}</b>
         <div class="sc-sub">Still owed on active plans</div></div>
       <div class="sc"><small>Pending Requests</small><b style="color:${pending ? 'var(--amber)' : 'inherit'}">${pending}</b>
@@ -486,7 +490,10 @@ async function decideRequest(id, approve) {
         tx.update(ref, { status: 'completed', decidedAt: firebase.firestore.FieldValue.serverTimestamp() });
         if (t.type === 'deposit') tx.update(uref, {
           balance: firebase.firestore.FieldValue.increment(t.amount),
-          totalDeposits: firebase.firestore.FieldValue.increment(t.amount) });
+          totalDeposits: firebase.firestore.FieldValue.increment(t.amount),
+          /* v31: mark that this user has had at least one verified deposit — useful
+             for legacy "first deposit" logic and analytics */
+          firstDepositAt: firebase.firestore.FieldValue.serverTimestamp() });
         if (t.type === 'withdraw') tx.update(uref, {
           totalWithdrawn: firebase.firestore.FieldValue.increment(t.amount) });
       } else {
@@ -495,19 +502,25 @@ async function decideRequest(id, approve) {
           tx.update(uref, { balance: firebase.firestore.FieldValue.increment(t.amount) });
       }
     });
-    /* Post-transaction: referral payout on FIRST successful deposit if trigger=deposit */
+    /* v31: post-approval — pay 2-level team commissions on every approved deposit.
+       L1 (direct referrer) earns level1Pct% of the deposit; L2 (referrer's referrer)
+       earns level2Pct%. Idempotent via referralCommissions/refc_<depositId>_l1/l2. */
     if (approve) {
       try {
         const tSnap = await db.collection('transactions').doc(id).get();
         const t = tSnap.data();
         if (t.type === 'deposit') {
-          referralPayout = await maybePayReferral(t.uid, t.amount, 'deposit');
+          referralPayout = await payDepositCommissions(id, t.uid, t.amount);
         }
-      } catch (e) { console.warn('referral payout skipped:', e); }
+      } catch (e) { console.warn('team commission payout skipped:', e); }
     }
     let msg = approve ? 'Request approved ✓' : 'Request rejected & refunded';
-    if (referralPayout && referralPayout.paid)
-      msg += ` · Referral bonus paid (₹${referralPayout.referrerAmt} to ${referralPayout.refName || 'referrer'} + ₹${referralPayout.referredAmt} to ${referralPayout.refereeName || 'user'})`;
+    if (referralPayout && referralPayout.paid) {
+      const parts = [];
+      if (referralPayout.l1) parts.push(`L1 ₹${referralPayout.l1.amount} → ${referralPayout.l1.name || 'referrer'}`);
+      if (referralPayout.l2) parts.push(`L2 ₹${referralPayout.l2.amount} → ${referralPayout.l2.name || 'upline'}`);
+      if (parts.length) msg += ' · Team commissions: ' + parts.join(', ');
+    }
     toast(msg, approve ? 'ok' : '');
   } catch (e) {
     if (e === 'already') toast('Already processed by another admin — no duplicate credit', '');
@@ -518,27 +531,131 @@ async function decideRequest(id, approve) {
   renderRequests();
 }
 
-/* ══════════ REFERRAL PAYOUT ENGINE ══════════
-   Pays out referral bonuses when the trigger event fires (default:
-   the referred user's first-ever completed deposit meeting the minimum).
-   Uses a per-user lock doc (referralPaid/{referredUid}) so bonuses are
-   NEVER paid twice, even under concurrent admin actions. */
+/* ══════════ v31 — 2-LEVEL TEAM COMMISSION ENGINE ══════════
+   Runs the moment a deposit is approved. Pays:
+     • L1 (the depositor's direct referrer)   — level1Pct% of the deposit
+     • L2 (that referrer's own referrer)      — level2Pct% of the deposit
+   Each payout is guarded by a deterministic doc id
+     referralCommissions/refc_<depositId>_l1   (and _l2)
+   so the same deposit can never pay a commission twice — across concurrent
+   admins, retries or double-clicks. Legacy one-off referralPaid lock is left
+   in place for compatibility but is no longer consulted.
+
+   loadReferralConfig()  —  fetches the admin-configured commission rates. */
 async function loadReferralConfig() {
   try {
     const d = await db.collection('appContent').doc('referral').get();
     const c = d.exists ? d.data() : {};
     return {
-      referrerAmount: Number(c.referrerAmount ?? 25),
-      referredAmount: Number(c.referredAmount ?? 25),
-      trigger: c.trigger || 'deposit',
+      level1Pct: Math.min(50, Math.max(0, Number(c.level1Pct ?? 10))),
+      level2Pct: Math.min(50, Math.max(0, Number(c.level2Pct ?? 5))),
       minDeposit: Number(c.minDeposit ?? 0),
       enabled: c.enabled !== false
     };
-  } catch (e) { return { referrerAmount: 25, referredAmount: 25, trigger: 'deposit', minDeposit: 0, enabled: true }; }
+  } catch (e) { return { level1Pct: 10, level2Pct: 5, minDeposit: 0, enabled: true }; }
 }
 
-async function maybePayReferral(referredUid, eventAmount, eventType) {
+/* Look up a user's DIRECT referrer (the person whose referralCode == referredBy) */
+async function findReferrerOf(uid) {
+  try {
+    const uSnap = await db.collection('users').doc(uid).get();
+    if (!uSnap.exists) return null;
+    const code = (uSnap.data().referredBy || '').toString().trim().toUpperCase();
+    if (!code) return null;
+    const q = await db.collection('users').where('referralCode', '==', code).limit(1).get();
+    if (q.empty) return null;
+    const doc = q.docs[0];
+    if (doc.id === uid) return null; // block self-referral loops
+    return { uid: doc.id, name: doc.data().name || '', code };
+  } catch (e) { return null; }
+}
+
+async function payDepositCommissions(depositId, depositorUid, depositAmount) {
   const cfg = await loadReferralConfig();
+  if (!cfg.enabled) return { paid: false, reason: 'disabled' };
+  const amt = Number(depositAmount || 0);
+  if (amt <= 0) return { paid: false, reason: 'zero' };
+  if (cfg.minDeposit > 0 && amt < cfg.minDeposit) return { paid: false, reason: 'below-min' };
+
+  const l1 = await findReferrerOf(depositorUid);
+  if (!l1) return { paid: false, reason: 'no-l1' };
+  const l2 = await findReferrerOf(l1.uid); // may be null — L2 is optional
+
+  const depositorSnap = await db.collection('users').doc(depositorUid).get();
+  const depositorName = depositorSnap.exists ? (depositorSnap.data().name || '') : '';
+
+  const round2 = n => Math.round(Number(n || 0) * 100) / 100;
+  const l1Amt = round2(amt * cfg.level1Pct / 100);
+  const l2Amt = l2 ? round2(amt * cfg.level2Pct / 100) : 0;
+  const now = firebase.firestore.FieldValue.serverTimestamp();
+  const out = { paid: false };
+
+  /* ── L1 payout ─────────────────────────────────────────────────────── */
+  if (l1Amt > 0) {
+    const lockRef = db.collection('referralCommissions').doc('refc_' + depositId + '_l1');
+    try {
+      await db.runTransaction(async tx => {
+        const lock = await tx.get(lockRef);
+        if (lock.exists) throw 'already-l1';
+        tx.set(lockRef, {
+          referrerUid: l1.uid, sourceUid: depositorUid, level: 1,
+          amount: l1Amt, pct: cfg.level1Pct, depositId, depositAmount: amt,
+          referrerName: l1.name, sourceName: depositorName, createdAt: now
+        });
+        tx.update(db.collection('users').doc(l1.uid), {
+          balance: firebase.firestore.FieldValue.increment(l1Amt),
+          totalCashback: firebase.firestore.FieldValue.increment(l1Amt)
+        });
+        tx.set(db.collection('transactions').doc(), {
+          uid: l1.uid, type: 'bonus', amount: l1Amt, status: 'completed',
+          note: `Team 1 commission (${cfg.level1Pct}%) — ${depositorName || 'friend'} deposited ${'₹' + amt.toLocaleString('en-IN')}`,
+          userName: l1.name, refDepositId: depositId, refLevel: 1,
+          createdAt: now
+        });
+      });
+      out.paid = true; out.l1 = { uid: l1.uid, amount: l1Amt, name: l1.name };
+    } catch (e) { if (e !== 'already-l1') console.warn('L1 commission failed:', e); }
+  }
+
+  /* ── L2 payout ─────────────────────────────────────────────────────── */
+  if (l2 && l2Amt > 0) {
+    const lockRef = db.collection('referralCommissions').doc('refc_' + depositId + '_l2');
+    try {
+      await db.runTransaction(async tx => {
+        const lock = await tx.get(lockRef);
+        if (lock.exists) throw 'already-l2';
+        tx.set(lockRef, {
+          referrerUid: l2.uid, sourceUid: depositorUid, level: 2,
+          amount: l2Amt, pct: cfg.level2Pct, depositId, depositAmount: amt,
+          referrerName: l2.name, sourceName: depositorName,
+          viaUid: l1.uid, viaName: l1.name, createdAt: now
+        });
+        tx.update(db.collection('users').doc(l2.uid), {
+          balance: firebase.firestore.FieldValue.increment(l2Amt),
+          totalCashback: firebase.firestore.FieldValue.increment(l2Amt)
+        });
+        tx.set(db.collection('transactions').doc(), {
+          uid: l2.uid, type: 'bonus', amount: l2Amt, status: 'completed',
+          note: `Team 2 commission (${cfg.level2Pct}%) — ${depositorName || 'user'} (via ${l1.name || 'friend'}) deposited ${'₹' + amt.toLocaleString('en-IN')}`,
+          userName: l2.name, refDepositId: depositId, refLevel: 2,
+          createdAt: now
+        });
+      });
+      out.paid = true; out.l2 = { uid: l2.uid, amount: l2Amt, name: l2.name };
+    } catch (e) { if (e !== 'already-l2') console.warn('L2 commission failed:', e); }
+  }
+  return out;
+}
+
+/* Legacy stub — first-plan flat-bonus flow is removed in v31; team commissions
+   are paid per-deposit only. Kept as a no-op so callsites don't crash. */
+async function maybePayReferral(){ return { paid:false, reason:'legacy-disabled' }; }
+async function _legacy_maybePayReferral_unused() {
+  return { paid: false };
+}
+
+async function _legacy_maybePayReferral_body(referredUid, eventAmount, eventType) {
+  const cfg = { enabled:false, referrerAmount:0, referredAmount:0, trigger:'deposit', minDeposit:0 };
   if (!cfg.enabled) return { paid: false, reason: 'disabled' };
   if (eventType === 'deposit' && cfg.trigger !== 'deposit') return { paid: false, reason: 'wrong-trigger' };
   if (eventType === 'plan' && cfg.trigger !== 'first_plan') return { paid: false, reason: 'wrong-trigger' };
@@ -705,12 +822,9 @@ async function settlePlan(x, uname) {
           note: `${i.planName} — remaining interest settled at maturity`, userName: uname || '',
           createdAt: firebase.firestore.FieldValue.serverTimestamp() });
     });
-    /* Post-settle: pay referral bonus if trigger=first_plan */
-    try { referralPayout = await maybePayReferral(x.uid, x.amount, 'plan'); }
-    catch (e) { console.warn('referral payout skipped:', e); }
+    /* v31: plan settlement pays NO flat referral bonus (system removed).
+       Team commissions are paid per-deposit at approval time instead. */
     let msg = `Released funds to ${uname || 'user'} ✓`;
-    if (referralPayout && referralPayout.paid)
-      msg += ` · Referral bonus paid (₹${referralPayout.referrerAmt} + ₹${referralPayout.referredAmt})`;
     toast(msg, 'ok');
   } catch (e) {
     if (e === 'already') toast('Already settled — duplicate payout blocked', '');
@@ -763,7 +877,7 @@ async function renderHistory() {
         <option value="">All types</option><option value="deposit">Deposits</option>
         <option value="withdraw">Withdrawals</option><option value="invest">Investments</option>
         <option value="interest">Daily Interest</option><option value="maturity">Maturity</option>
-        <option value="cashback">Cashback</option><option value="refund">Refunds</option></select>
+        <option value="cashback">Cashback</option><option value="bonus">Bonuses</option><option value="refund">Refunds</option></select>
       <input class="search-in" id="h-search" placeholder="Search user / UTR / note…">
     </div></div>
     <div id="h-tbl"><div class="spinner"></div></div></div>`;
@@ -1048,6 +1162,7 @@ async function renderPlans() {
     <div style="padding:10px 18px" class="muted">Interest % is the <b>total</b> over the duration — it accrues in equal daily slices (total ÷ days) credited every 24h from activation.</div></div>
     <div class="plan-grid" id="p-grid"><div class="spinner"></div></div>`;
   $('#p-new').onclick = () => planEditor(null);
+  renderPlanBanner(); // full-width banner slot above the plan list (planBanners/plans)
   const snap = await db.collection('plans').orderBy('minAmount').get();
   const grid = $('#p-grid'); grid.innerHTML = '';
   if (snap.empty) { grid.innerHTML = '<div class="tbl-card"><div class="empty">No plans yet — create one or seed demo plans.</div></div>'; return; }
@@ -1056,6 +1171,7 @@ async function renderPlans() {
     const c = document.createElement('div');
     c.className = 'ap-card';
     c.innerHTML = `
+      ${p.image ? `<img class="ap-banner" src="${esc(p.image)}" alt="${esc(p.name)} banner" loading="lazy">` : ''}
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
         <h4>${esc(p.name)}</h4>
         <span class="chip ${p.active ? 'chip-green' : 'chip-red'}">${p.active ? 'Live' : 'Hidden'}</span></div>
@@ -1086,17 +1202,55 @@ async function renderPlans() {
   });
 }
 
+/* Read + downscale an image file to a JPEG data-URL (max 1280px, ~0.78 quality)
+   so a plan banner fits comfortably inside a Firestore doc (< 1 MB). */
+function readImageDataUrl(file, maxSide = 1280, quality = 0.78) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, maxSide / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * k));
+        c.height = Math.max(1, Math.round(img.height * k));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        res(c.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = rej; img.src = r.result;
+    };
+    r.onerror = rej; r.readAsDataURL(file);
+  });
+}
+
 function planEditor(p) {
   const isNew = !p;
-  p = p || { name: '', tagline: '', minAmount: 300, cashbackPct: 5, durationDays: 30, popular: false, active: true, perks: [] };
+  p = p || { name: '', tagline: '', minAmount: 300, cashbackPct: 5, durationDays: 30, popular: false, active: true, perks: [], rewardType: 'interest', image: '' };
+  const rt = p.rewardType || 'interest';
   const m = openModal(`
     <h3>${isNew ? 'Create Plan' : 'Edit Plan'}</h3>
-    <p class="msub">Interest % is the TOTAL reward across the duration — it accrues daily (total ÷ days) and lands in the user's wallet every 24h from activation. Keep it realistic and sustainable.</p>
+    <p class="msub">Reward % is the TOTAL across the duration — it accrues daily (total ÷ days) and lands in the user's wallet every 24h from activation. Choose whether users see this reward labelled as <b>Interest</b> or <b>Returns</b>.</p>
     <div class="frow"><span>Plan Name</span><input class="field-in" id="pf-name" value="${esc(p.name)}" placeholder="Starter Saver"></div>
     <div class="frow"><span>Tagline</span><input class="field-in" id="pf-tag" value="${esc(p.tagline)}" placeholder="Perfect for beginners"></div>
+    <div class="frow"><span>Banner image (optional — shown on top of the plan card in the user app)</span>
+      <div class="pf-img-wrap" id="pf-img-wrap">
+        <img class="pf-img-preview ${p.image ? '' : 'hidden'}" id="pf-img-preview" src="${esc(p.image || '')}" alt="Banner preview">
+        <input type="file" id="pf-img-file" accept="image/*" hidden>
+        <div class="pf-img-row">
+          <button type="button" class="btn btn-soft btn-sm" id="pf-img-pick">📷 Upload image</button>
+          <button type="button" class="btn btn-red btn-sm ${p.image ? '' : 'hidden'}" id="pf-img-remove">Remove</button>
+        </div>
+        <input class="field-in" id="pf-img" value="${esc(p.image || '')}" placeholder="…or paste an https:// image URL">
+        <span class="mini">Uploaded images are compressed to JPEG (max 1280px) and stored with the plan — no extra hosting needed.</span>
+      </div></div>
+    <div class="frow"><span>Reward label shown to users</span>
+      <select class="field-in" id="pf-rtype">
+        <option value="interest" ${rt === 'interest' ? 'selected' : ''}>Interest (Daily Interest)</option>
+        <option value="returns" ${rt === 'returns' ? 'selected' : ''}>Returns (Daily Returns)</option>
+      </select></div>
     <div class="frow2">
       <div class="frow"><span>Min Amount (₹)</span><input class="field-in" id="pf-min" type="number" value="${p.minAmount}"></div>
-      <div class="frow"><span>Total Interest %</span><input class="field-in" id="pf-cb" type="number" step="0.5" value="${p.cashbackPct}"></div>
+      <div class="frow"><span>Total Reward %</span><input class="field-in" id="pf-cb" type="number" step="0.5" value="${p.cashbackPct}"></div>
     </div>
     <div class="frow"><span>Duration (days)</span><input class="field-in" id="pf-days" type="number" value="${p.durationDays}"></div>
     <div class="frow"><span>Perks (one per line)</span><textarea class="field-in" id="pf-perks">${esc((p.perks || []).join('\n'))}</textarea></div>
@@ -1105,13 +1259,44 @@ function planEditor(p) {
     <div style="display:flex;gap:10px;margin-top:6px">
       <button class="btn btn-primary" id="pf-save" style="flex:1">${isNew ? 'Create' : 'Save'}</button>
       <button class="btn btn-soft" onclick="closeModal()" style="flex:1">Cancel</button></div>`);
+  /* ── banner image: file upload → data-URL, or a pasted https URL — with live preview ── */
+  const imgInp = m.querySelector('#pf-img'), imgPrev = m.querySelector('#pf-img-preview');
+  const imgFile = m.querySelector('#pf-img-file');
+  const imgRemove = m.querySelector('#pf-img-remove');
+  const syncImgPrev = () => {
+    const v = imgInp.value.trim();
+    imgPrev.src = v; imgPrev.classList.toggle('hidden', !v);
+    imgRemove.classList.toggle('hidden', !v);
+  };
+  m.querySelector('#pf-img-pick').onclick = () => imgFile.click();
+  imgFile.onchange = async () => {
+    const f = imgFile.files && imgFile.files[0];
+    imgFile.value = '';
+    if (!f) return;
+    if (!/^image\//.test(f.type)) return toast('Choose an image file (jpg / png / webp)', 'err');
+    try {
+      const data = await readImageDataUrl(f, 1280, 0.78);
+      if (data.length > 820000) return toast('Image too large even after compression — pick a smaller one', 'err');
+      imgInp.value = data; syncImgPrev();
+      toast('Banner attached ✓', 'ok');
+    } catch (e) { toast('Could not read that image — try another', 'err'); }
+  };
+  imgInp.oninput = syncImgPrev;
+  imgRemove.onclick = () => { imgInp.value = ''; syncImgPrev(); };
+
   m.querySelector('#pf-save').onclick = async () => {
+    const img = imgInp.value.trim();
+    if (img && !img.startsWith('data:image/') && !/^https?:\/\//i.test(img))
+      return toast('Banner must be an uploaded image or an https:// URL', 'err');
+    if (img.length > 900000) return toast('Banner image is too large — upload it instead of pasting', 'err');
     const data = {
       name: m.querySelector('#pf-name').value.trim(),
       tagline: m.querySelector('#pf-tag').value.trim(),
+      image: img,
       minAmount: Number(m.querySelector('#pf-min').value),
       cashbackPct: Number(m.querySelector('#pf-cb').value),
       durationDays: Number(m.querySelector('#pf-days').value),
+      rewardType: m.querySelector('#pf-rtype').value === 'returns' ? 'returns' : 'interest',
       perks: m.querySelector('#pf-perks').value.split('\n').map(x => x.trim()).filter(Boolean),
       popular: m.querySelector('#pf-pop').checked,
       active: isNew ? true : p.active
@@ -1130,11 +1315,11 @@ function planEditor(p) {
 
 async function seedPlans() {
   const demo = [
-    { name: 'Starter Saver', tagline: 'Begin your savings habit', minAmount: 300, cashbackPct: 3, durationDays: 30, popular: false, active: true,
+    { name: 'Starter Saver', tagline: 'Begin your savings habit', minAmount: 300, cashbackPct: 3, durationDays: 30, popular: false, active: true, image: '',
       perks: ['3% total interest, credited daily', 'Withdraw anytime after 30 days', 'Full transaction receipts'] },
-    { name: 'Smart Saver', tagline: 'For consistent savers', minAmount: 1000, cashbackPct: 5, durationDays: 60, popular: true, active: true,
+    { name: 'Smart Saver', tagline: 'For consistent savers', minAmount: 1000, cashbackPct: 5, durationDays: 60, popular: true, active: true, image: '',
       perks: ['5% total interest, credited daily', 'Priority withdrawal processing', 'Free savings insights report'] },
-    { name: 'Champion Saver', tagline: 'Maximum rewards', minAmount: 3000, cashbackPct: 7, durationDays: 90, popular: false, active: true,
+    { name: 'Champion Saver', tagline: 'Maximum rewards', minAmount: 3000, cashbackPct: 7, durationDays: 90, popular: false, active: true, image: '',
       perks: ['7% total interest, credited daily', 'Dedicated support line', 'Early access to new plans'] }
   ];
   try {
@@ -1144,6 +1329,95 @@ async function seedPlans() {
     toast('3 demo plans created', 'ok');
   } catch (e) { toast('Seed failed — ' + (e && e.message ? e.message : 'try again'), 'err'); }
   renderPlans();
+}
+
+/* ══════════ PLANS BANNER — one full-width image above the plan list ══════════
+   Lives in planBanners/plans. Kept in its own collection because a full-width
+   banner can be up to ~800 KB — too big to sit inside a plans doc, and the
+   user app only reads this one extra doc on the Plans tab. */
+async function renderPlanBanner() {
+  const el = $('#page-plans');
+  const wrap = document.createElement('div');
+  wrap.id = 'pb-wrap';
+  el.insertBefore(wrap, el.children[1] || null);
+  wrap.innerHTML = '<div class="tbl-card"><div class="tbl-head"><h3>🖼️ Plans Page Banner</h3><span class="muted">Loading…</span></div></div>';
+  let cfg = {};
+  try {
+    const d = await db.collection('planBanners').doc('plans').get();
+    cfg = d.exists ? d.data() : {};
+  } catch (e) {}
+  const c = { enabled: cfg.enabled === true, image: cfg.image || '' };
+  wrap.innerHTML = `
+    <div class="tbl-card" style="border-left:4px solid var(--gold)">
+      <div class="tbl-head"><h3>🖼️ Plans Page Banner</h3>
+        <span class="chip ${c.enabled && c.image ? 'chip-green' : 'chip-red'}">${c.enabled && c.image ? 'Live in user app' : 'Hidden'}</span></div>
+      <div style="padding:16px 18px">
+        <p class="muted" style="margin-bottom:12px">One full-width banner shown <b>above the plan list</b> in the user app.
+        Upload a wide image (≈1600×500 works best) — it's compressed to JPEG and updates live for every user. Turn it off anytime.</p>
+        <img class="pb-preview ${c.image ? '' : 'hidden'}" id="pb-preview" src="${esc(c.image)}" alt="Plans banner preview">
+        <input type="file" id="pb-file" accept="image/*" hidden>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">
+          <button class="btn btn-soft btn-sm" id="pb-pick">📷 Upload banner</button>
+          <button class="btn btn-red btn-sm ${c.image ? '' : 'hidden'}" id="pb-remove">Remove image</button>
+        </div>
+        <div class="frow"><span>…or paste an https:// image URL</span>
+          <input class="field-in" id="pb-url" value="${c.image.startsWith('data:') ? '' : esc(c.image)}" placeholder="https://…"></div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
+          <button class="btn btn-primary" id="pb-publish" style="flex:1;min-width:160px" ${c.image ? '' : 'disabled'}>Publish Banner</button>
+          <button class="btn btn-red" id="pb-hide" style="flex:1;min-width:120px" ${c.enabled ? '' : 'disabled'}>Hide from users</button>
+        </div>
+        <div class="muted" style="margin-top:10px" id="pb-status">${cfg.updatedAt ? 'Last updated ' + fdate(cfg.updatedAt) : 'Not set yet — upload an image and publish.'}</div>
+      </div>
+    </div>`;
+
+  let pending = c.image; // the image waiting to be published
+  const prev = $('#pb-preview'), urlInp = $('#pb-url');
+  const syncPrev = () => {
+    prev.src = pending; prev.classList.toggle('hidden', !pending);
+    $('#pb-remove').classList.toggle('hidden', !pending);
+    $('#pb-publish').disabled = !pending;
+  };
+  $('#pb-pick').onclick = () => $('#pb-file').click();
+  $('#pb-file').onchange = async e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    if (!/^image\//.test(f.type)) return toast('Choose an image file (jpg / png / webp)', 'err');
+    try {
+      const data = await readImageDataUrl(f, 1600, 0.78);
+      if (data.length > 820000) return toast('Banner too large even after compression — pick a smaller / wider image', 'err');
+      pending = data; urlInp.value = ''; syncPrev();
+      toast('Banner ready — tap Publish to make it live', 'ok');
+    } catch (err) { toast('Could not read that image — try another', 'err'); }
+  };
+  urlInp.oninput = () => { pending = urlInp.value.trim(); syncPrev(); };
+  $('#pb-remove').onclick = () => { pending = ''; urlInp.value = ''; syncPrev(); };
+
+  $('#pb-publish').onclick = async () => {
+    const v = (pending || '').trim();
+    if (!v) return toast('Add an image first', 'err');
+    if (!v.startsWith('data:image/') && !/^https?:\/\//i.test(v))
+      return toast('Banner must be an uploaded image or an https:// URL', 'err');
+    if (v.length > 900000) return toast('Banner image is too large — upload it instead of pasting', 'err');
+    const btn = $('#pb-publish'); btn.classList.add('loading'); btn.disabled = true;
+    try {
+      await db.collection('planBanners').doc('plans').set({
+        image: v, enabled: true, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+      toast('Banner published — live on the Plans tab now! 🖼️', 'ok');
+      renderPlans();
+    } catch (e) {
+      btn.classList.remove('loading'); btn.disabled = false;
+      toast('Publish failed — ' + (e && e.message ? e.message : 'try again'), 'err');
+    }
+  };
+  $('#pb-hide').onclick = async () => {
+    try {
+      await db.collection('planBanners').doc('plans').set({ enabled: false, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+      toast('Banner hidden — users no longer see it', 'ok');
+      renderPlans();
+    } catch (e) { toast('Hide failed — try again', 'err'); }
+  };
 }
 
 /* ══════════ ANNOUNCEMENTS ══════════ */
@@ -1518,57 +1792,52 @@ async function renderReferralSettings() {
     cfg = d.exists ? d.data() : {};
   } catch (e) {}
   const c = {
-    referrerAmount: cfg.referrerAmount ?? 25,
-    referredAmount: cfg.referredAmount ?? 25,
-    trigger: cfg.trigger || 'deposit',
+    level1Pct: cfg.level1Pct ?? 10,
+    level2Pct: cfg.level2Pct ?? 5,
     minDeposit: cfg.minDeposit ?? 0,
     title: cfg.title || 'Refer & Earn',
-    description: cfg.description || 'Share your code — you both get a reward when a friend joins!',
+    description: cfg.description || 'Invite friends — earn a % of every deposit your team makes!',
     enabled: cfg.enabled !== false
   };
 
-  // count paid referrals stat
-  let paidCount = 0, totalPaid = 0;
+  // count paid team commissions
+  let commCount = 0, commPaid = 0;
   try {
-    const s = await db.collection('referralPaid').get();
-    paidCount = s.size;
-    s.forEach(d => totalPaid += (d.data().referrerAmount || 0) + (d.data().referredAmount || 0));
+    const s = await db.collection('referralCommissions').get();
+    commCount = s.size;
+    s.forEach(d => commPaid += Number(d.data().amount || 0));
   } catch (e) {}
 
   el.innerHTML = `
     <div class="tbl-card" style="border-left:4px solid var(--p1)">
-      <div class="tbl-head"><h3>🎁 Refer & Earn Settings</h3>
+      <div class="tbl-head"><h3>🎁 Refer & Earn — Team Commissions</h3>
         <span class="chip ${c.enabled ? 'chip-green' : 'chip-red'}">${c.enabled ? 'ENABLED' : 'DISABLED'}</span></div>
       <div style="padding:12px 18px" class="muted">
-        Set how much both the <b>referrer</b> and the <b>referred user</b> earn, and choose
-        when the bonus is paid. Bonuses are auto-credited once per referred user, guarded
-        by a lock doc — no double-payments even under concurrent admin actions.
+        Two-level team commission system. Every time a user's deposit is <b>approved</b>,
+        their direct referrer earns <b>Level 1%</b> of the deposit and that referrer's own
+        referrer earns <b>Level 2%</b>. Payouts are idempotent (guarded by
+        <code>referralCommissions/refc_&lt;depositId&gt;_l1|l2</code>) — the same deposit can
+        never pay a commission twice, even under concurrent admin actions.
       </div>
       <div style="padding:0 18px 6px;display:flex;gap:12px;flex-wrap:wrap">
-        <div class="sc" style="flex:1;min-width:180px"><small>Paid Referrals</small><b>${paidCount}</b>
-          <div class="sc-sub">Total bonuses given: ${inr(totalPaid)}</div></div>
+        <div class="sc" style="flex:1;min-width:180px"><small>Total Commissions Paid</small><b>${commCount}</b>
+          <div class="sc-sub">Total amount: ${inr(commPaid)}</div></div>
       </div>
     </div>
 
-    <div class="tbl-card"><div class="tbl-head"><h3>Configure Reward</h3></div>
+    <div class="tbl-card"><div class="tbl-head"><h3>Configure Commission Rates</h3></div>
       <div style="padding:18px">
         <div class="frow" style="flex-direction:row;align-items:center;gap:10px">
           <input type="checkbox" id="rf-enabled" ${c.enabled ? 'checked' : ''}>
-          <span><b>Enable referral bonus program</b> — uncheck to pause all new referral payouts</span>
+          <span><b>Enable team commission program</b> — uncheck to pause all new commission payouts</span>
         </div>
         <div class="frow2">
-          <div class="frow"><span>Referrer bonus (₹) — paid to the person who shared the code</span>
-            <input class="field-in" id="rf-referrer" type="number" min="0" step="1" value="${c.referrerAmount}"></div>
-          <div class="frow"><span>Referred user bonus (₹) — paid to the new user who joined</span>
-            <input class="field-in" id="rf-referred" type="number" min="0" step="1" value="${c.referredAmount}"></div>
+          <div class="frow"><span>Level 1 rate (%) — % of a deposit paid to the depositor's DIRECT referrer</span>
+            <input class="field-in" id="rf-l1" type="number" min="0" max="50" step="0.5" value="${c.level1Pct}"></div>
+          <div class="frow"><span>Level 2 rate (%) — % of a deposit paid to the referrer's own referrer</span>
+            <input class="field-in" id="rf-l2" type="number" min="0" max="50" step="0.5" value="${c.level2Pct}"></div>
         </div>
-        <div class="frow"><span>When to pay the bonus</span>
-          <select class="field-in" id="rf-trigger">
-            <option value="deposit" ${c.trigger === 'deposit' ? 'selected' : ''}>When referred user's first deposit is APPROVED (recommended)</option>
-            <option value="first_plan" ${c.trigger === 'first_plan' ? 'selected' : ''}>When referred user completes their FIRST plan</option>
-          </select>
-        </div>
-        <div class="frow"><span>Minimum deposit amount (₹) — only if trigger is "first deposit". 0 = no minimum.</span>
+        <div class="frow"><span>Minimum qualifying deposit (₹) — deposits below this pay 0 commission. 0 = no minimum.</span>
           <input class="field-in" id="rf-min" type="number" min="0" step="10" value="${c.minDeposit}"></div>
         <div class="frow"><span>Title (shown in user app)</span>
           <input class="field-in" id="rf-title" value="${esc(c.title)}" placeholder="Refer & Earn"></div>
@@ -1578,48 +1847,45 @@ async function renderReferralSettings() {
       </div>
     </div>
 
-    <div class="tbl-card"><div class="tbl-head"><h3>Recent Referral Payouts</h3></div>
+    <div class="tbl-card"><div class="tbl-head"><h3>Recent Team Commission Payouts</h3></div>
       <div id="rf-history"><div class="spinner"></div></div>
     </div>`;
 
   $('#rf-save').onclick = async () => {
+    const l1 = Number($('#rf-l1').value);
+    const l2 = Number($('#rf-l2').value);
+    if (!(l1 >= 0) || !(l2 >= 0)) return toast('Rates must be zero or positive', 'err');
+    if (l1 > 50 || l2 > 50) return toast('Rates capped at 50% each', 'err');
     const data = {
-      referrerAmount: Number($('#rf-referrer').value) || 0,
-      referredAmount: Number($('#rf-referred').value) || 0,
-      trigger: $('#rf-trigger').value,
+      level1Pct: l1, level2Pct: l2,
       minDeposit: Number($('#rf-min').value) || 0,
       title: $('#rf-title').value.trim() || 'Refer & Earn',
       description: $('#rf-desc').value.trim(),
       enabled: $('#rf-enabled').checked,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
-    if (data.referrerAmount < 0 || data.referredAmount < 0) return toast('Amounts must be zero or positive', 'err');
-    if (data.referrerAmount > 100000 || data.referredAmount > 100000) return toast('Amounts look unreasonably large', 'err');
     try {
       await db.collection('appContent').doc('referral').set(data, { merge: true });
-      toast('Referral settings saved — live in user app instantly', 'ok');
+      toast('Team commission settings saved — live in user app instantly', 'ok');
       renderReferralSettings();
     } catch (e) { toast('Save failed — ' + (e && e.message ? e.message : 'try again'), 'err'); }
   };
 
   try {
-    const s = await db.collection('referralPaid').orderBy('paidAt', 'desc').limit(30).get();
+    const s = await db.collection('referralCommissions').orderBy('createdAt', 'desc').limit(50).get();
     const box = $('#rf-history');
-    if (!s.size) { box.innerHTML = '<div class="empty">No referral bonuses paid yet.</div>'; return; }
-    const uids = new Set();
-    s.docs.forEach(d => { uids.add(d.data().referrerUid); uids.add(d.data().referredUid); });
-    const names = {};
-    await Promise.all([...uids].map(async u => { try { const x = await db.collection('users').doc(u).get(); names[u] = x.exists ? x.data().name : u.slice(0,8); } catch(e){ names[u] = u.slice(0,8); } }));
-    box.innerHTML = `<div class="tbl-scroll"><table><tr><th>When</th><th>Referrer</th><th>Referred User</th><th>Referrer got</th><th>Referred got</th><th>Trigger</th></tr>
+    if (!s.size) { box.innerHTML = '<div class="empty">No team commissions paid yet — they will appear here the moment a deposit from a referred user is approved.</div>'; return; }
+    box.innerHTML = `<div class="tbl-scroll"><table><tr><th>When</th><th>Level</th><th>Earner</th><th>From (deposit)</th><th>Deposit</th><th>Rate</th><th>Commission</th></tr>
       ${s.docs.map(d => { const x = d.data(); return `<tr>
-        <td>${fdate(x.paidAt)}</td>
-        <td><b>${esc(names[x.referrerUid] || '—')}</b></td>
-        <td><b>${esc(names[x.referredUid] || '—')}</b></td>
-        <td>${inr(x.referrerAmount)}</td>
-        <td>${inr(x.referredAmount)}</td>
-        <td><span class="chip chip-blue">${esc(x.trigger || 'deposit')}</span></td></tr>`; }).join('')}</table></div>`;
+        <td>${fdate(x.createdAt)}</td>
+        <td><span class="chip ${x.level === 1 ? 'chip-green' : 'chip-blue'}">L${x.level}</span></td>
+        <td><b>${esc(x.referrerName || x.referrerUid.slice(0,8))}</b></td>
+        <td>${esc(x.sourceName || x.sourceUid.slice(0,8))}${x.viaName ? ' <small class="muted">via ' + esc(x.viaName) + '</small>' : ''}</td>
+        <td>${inr(x.depositAmount || 0)}</td>
+        <td>${(x.pct || 0)}%</td>
+        <td><b style="color:var(--green)">${inr(x.amount)}</b></td></tr>`; }).join('')}</table></div>`;
   } catch (e) {
-    $('#rf-history').innerHTML = '<div class="empty">Could not load payout history.</div>';
+    $('#rf-history').innerHTML = '<div class="empty">Could not load commission history.</div>';
   }
 }
 
@@ -1632,7 +1898,7 @@ async function renderShareSettings() {
     const d = await db.collection('appContent').doc('share').get();
     cfg = d.exists ? d.data() : {};
   } catch (e) {}
-  const defaultMsg = `Join me on GodX — save small amounts, earn real interest! 💜\n\n🎁 Use my referral code {code} at signup and we BOTH get ₹{referredAmount}!\n\nDownload now:`;
+  const defaultMsg = `Join me on GodX — save small amounts, earn real interest! 💜\n\n💸 Sign up with my link — the code fills in automatically — and start earning daily interest today!\n\nMy invite link:`;
   const c = {
     shareLink: cfg.shareLink || 'https://godx.app',
     shareMessage: cfg.shareMessage || defaultMsg,
@@ -1651,7 +1917,7 @@ async function renderShareSettings() {
         Control the link and message shown when users tap <b>Share</b> in the app.
         Available placeholders you can put anywhere in the message:
         <b>{code}</b>, <b>{link}</b>, <b>{name}</b>,
-        <b>{referrerAmount}</b>, <b>{referredAmount}</b>.
+        <b>{level1Pct}</b>, <b>{level2Pct}</b>.
       </div>
     </div>
 
@@ -1686,11 +1952,12 @@ async function renderShareSettings() {
   const drawPreview = () => {
     const link = $('#sh-link').value.trim();
     const rawMsg = $('#sh-msg').value;
+    const previewLink = link ? link.split('?')[0] + '?ref=GODXABCDE' : '';
     const preview = rawMsg
       .replace(/\{code\}/g, 'GODXABCDE')
-      .replace(/\{link\}/g, link)
-      .replace(/\{referrerAmount\}/g, '25')
-      .replace(/\{referredAmount\}/g, '25')
+      .replace(/\{link\}/g, previewLink)
+      .replace(/\{level1Pct\}/g, '10')
+      .replace(/\{level2Pct\}/g, '5')
       .replace(/\{name\}/g, 'Rahul');
     $('#sh-preview-msg').textContent = preview;
     const a = $('#sh-preview-link');
@@ -2024,4 +2291,180 @@ async function openChatAdmin(cid) {
       renderChats();
     } catch (e) { toast('Delete failed — try again', 'err'); }
   });
+}
+
+/* ══════════ REGISTER BONUS (admin-editable) ══════════
+   Stored in appContent/registerBonus — { enabled, amount, note }.
+   The user app credits it ONCE at signup, guarded by users.registerBonusGiven
+   inside a Firestore transaction — retries / double-taps can never pay twice. */
+async function renderRegisterBonus() {
+  const el = $('#page-register');
+  el.innerHTML = '<div class="spinner"></div>';
+  let cfg = {};
+  try { const d = await db.collection('appContent').doc('registerBonus').get(); cfg = d.exists ? d.data() : {}; } catch (e) {}
+  const c = {
+    enabled: cfg.enabled === true,
+    amount: Number(cfg.amount ?? 0),
+    note: cfg.note || 'Registration bonus — welcome to GodX! 🎉'
+  };
+  let givenCount = 0, givenTotal = 0;
+  try {
+    const s = await db.collection('users').where('registerBonusGiven', '==', true).get();
+    givenCount = s.size;
+  } catch (e) {}
+  try {
+    const s2 = await db.collection('transactions').where('type', '==', 'bonus').get();
+    s2.forEach(d => { const t = d.data(); if ((t.note || '').toLowerCase().includes('registration')) givenTotal += t.amount || 0; });
+  } catch (e) {}
+
+  el.innerHTML = `
+    <div class="tbl-card" style="border-left:4px solid var(--p1)">
+      <div class="tbl-head"><h3>🎁 Register Bonus</h3>
+        <span class="chip ${c.enabled && c.amount > 0 ? 'chip-green' : 'chip-red'}">${c.enabled && c.amount > 0 ? 'LIVE — ' + inr(c.amount) + ' on every signup' : 'OFF'}</span></div>
+      <div style="padding:12px 18px" class="muted">
+        Every new user instantly receives this amount in their wallet the moment they create an account.
+        It is credited <b>exactly once per account</b> (transaction-guarded — retries can never pay twice)
+        and appears in their transaction history as a <b>bonus</b> receipt. Turn it off anytime — users who
+        already received it keep it.</div>
+      <div style="padding:0 18px 6px;display:flex;gap:12px;flex-wrap:wrap">
+        <div class="sc" style="flex:1;min-width:180px"><small>Bonuses Given</small><b>${givenCount}</b>
+          <div class="sc-sub">Total credited: ${inr(givenTotal)}</div></div>
+      </div>
+    </div>
+
+    <div class="tbl-card" style="max-width:640px"><div class="tbl-head"><h3>Configure Bonus</h3></div>
+      <div style="padding:18px">
+        <div class="frow" style="flex-direction:row;align-items:center;justify-content:space-between;gap:12px">
+          <span style="font-size:.85rem;font-weight:700;color:var(--ink)">Give every new user a register bonus</span>
+          <label class="gxswitch"><input type="checkbox" id="rb-enabled" ${c.enabled ? 'checked' : ''}><i></i></label></div>
+        <div class="frow"><span>Bonus amount (₹) — credited to the wallet on signup</span>
+          <input class="field-in" id="rb-amount" type="number" min="0" step="1" value="${c.amount}" placeholder="e.g. 51"></div>
+        <div class="frow"><span>Receipt note (shown in the user's transaction history)</span>
+          <input class="field-in" id="rb-note" value="${esc(c.note)}"></div>
+        <button class="btn btn-primary" id="rb-save">Save Register Bonus</button>
+      </div></div>`;
+
+  $('#rb-save').onclick = async () => {
+    const data = {
+      enabled: $('#rb-enabled').checked,
+      amount: Math.max(0, Number($('#rb-amount').value) || 0),
+      note: $('#rb-note').value.trim() || 'Registration bonus — welcome to GodX! 🎉',
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    if (data.enabled && !(data.amount > 0)) return toast('Enter a bonus amount — or turn the bonus off', 'err');
+    if (data.amount > 100000) return toast('Amount looks unreasonably large', 'err');
+    const btn = $('#rb-save');
+    btn.classList.add('loading'); btn.disabled = true;
+    try {
+      await db.collection('appContent').doc('registerBonus').set(data, { merge: true });
+      toast(data.enabled ? 'Register bonus live — every new signup gets ' + inr(data.amount) + ' 🎁' : 'Register bonus turned off', 'ok');
+      renderRegisterBonus();
+    } catch (e) {
+      btn.classList.remove('loading'); btn.disabled = false;
+      toast('Save failed — ' + (e && e.message ? e.message : 'try again'), 'err');
+    }
+  };
+}
+
+/* ══════════ DAILY LOGIN BONUS (admin-editable, e.g. 7-day cycle) ══════════
+   Stored in appContent/loginBonus — { enabled, days, amounts[], title, subtitle }.
+   The user app claims one reward per day (server-time validated, lock-guarded by
+   loginPaid/<uid>_<date>); missing a day restarts the streak at Day 1 and
+   completing the cycle starts a fresh one. */
+async function renderLoginBonus() {
+  const el = $('#page-login');
+  el.innerHTML = '<div class="spinner"></div>';
+  let cfg = {};
+  try { const d = await db.collection('appContent').doc('loginBonus').get(); cfg = d.exists ? d.data() : {}; } catch (e) {}
+  const c = {
+    enabled: cfg.enabled === true,
+    days: Math.min(30, Math.max(1, Number(cfg.days) || 7)),
+    amounts: Array.isArray(cfg.amounts) ? cfg.amounts.map(x => Number(x) || 0) : [],
+    title: cfg.title || 'Daily Login Bonus 🎁',
+    subtitle: cfg.subtitle || 'Open the app every day and collect your reward!'
+  };
+  while (c.amounts.length < c.days) c.amounts.push(10);
+  c.amounts = c.amounts.slice(0, c.days);
+
+  let claimCount = 0, claimTotal = 0;
+  try {
+    const s = await db.collection('loginPaid').get();
+    claimCount = s.size;
+    s.forEach(d => claimTotal += d.data().amount || 0);
+  } catch (e) {}
+  const totalOf = arr => arr.reduce((a, b) => a + (Number(b) || 0), 0);
+
+  el.innerHTML = `
+    <div class="tbl-card" style="border-left:4px solid var(--p1)">
+      <div class="tbl-head"><h3>🗓️ Daily Login Bonus</h3>
+        <span class="chip ${c.enabled ? 'chip-green' : 'chip-red'}">${c.enabled ? 'LIVE — ' + c.days + '-day cycle' : 'OFF'}</span></div>
+      <div style="padding:12px 18px" class="muted">
+        Users collect a reward for opening the app on consecutive days — a classic <b>7-day login bonus</b>.
+        Missing a day restarts their streak at Day 1; finishing the cycle starts a fresh one. Every claim is
+        validated against server time and lock-guarded — <b>one reward per user per day, impossible to double-claim</b>.</div>
+      <div style="padding:0 18px 6px;display:flex;gap:12px;flex-wrap:wrap">
+        <div class="sc" style="flex:1;min-width:180px"><small>Claims So Far</small><b>${claimCount}</b>
+          <div class="sc-sub">Total credited: ${inr(claimTotal)}</div></div>
+      </div>
+    </div>
+
+    <div class="tbl-card" style="max-width:640px"><div class="tbl-head"><h3>Configure Rewards</h3></div>
+      <div style="padding:18px">
+        <div class="frow" style="flex-direction:row;align-items:center;justify-content:space-between;gap:12px">
+          <span style="font-size:.85rem;font-weight:700;color:var(--ink)">Enable daily login bonus</span>
+          <label class="gxswitch"><input type="checkbox" id="lb-enabled" ${c.enabled ? 'checked' : ''}><i></i></label></div>
+        <div class="frow2">
+          <div class="frow"><span>Cycle length (days) — e.g. 7</span>
+            <input class="field-in" id="lb-days" type="number" min="1" max="30" step="1" value="${c.days}"></div>
+          <div class="frow"><span>Full-cycle total</span>
+            <input class="field-in" id="lb-totalview" value="${inr(totalOf(c.amounts))}" disabled></div>
+        </div>
+        <div class="frow"><span>Popup title (user app)</span>
+          <input class="field-in" id="lb-title" value="${esc(c.title)}"></div>
+        <div class="frow"><span>Popup subtitle (user app)</span>
+          <input class="field-in" id="lb-subtitle" value="${esc(c.subtitle)}"></div>
+        <div id="lb-days-grid"></div>
+        <button class="btn btn-primary" id="lb-save" style="margin-top:6px">Save Login Bonus</button>
+      </div></div>`;
+
+  const syncDaysGrid = () => {
+    $('#lb-days-grid').innerHTML = c.amounts.map((a, i) =>
+      `<div class="frow"><span>Day ${i + 1} reward (₹)</span>
+        <input class="field-in lb-amt" data-d="${i}" type="number" min="0" step="1" value="${a}"></div>`).join('');
+    $$('#lb-days-grid .lb-amt').forEach(inp => inp.oninput = () => {
+      c.amounts[Number(inp.dataset.d)] = Math.max(0, Number(inp.value) || 0);
+      $('#lb-totalview').value = inr(totalOf(c.amounts));
+    });
+  };
+  $('#lb-days').onchange = () => {
+    c.days = Math.min(30, Math.max(1, Number($('#lb-days').value) || 7));
+    while (c.amounts.length < c.days) c.amounts.push(10);
+    c.amounts = c.amounts.slice(0, c.days);
+    syncDaysGrid();
+  };
+  syncDaysGrid();
+
+  $('#lb-save').onclick = async () => {
+    const data = {
+      enabled: $('#lb-enabled').checked,
+      days: c.days,
+      amounts: c.amounts.map(x => Math.max(0, Number(x) || 0)),
+      title: $('#lb-title').value.trim() || 'Daily Login Bonus 🎁',
+      subtitle: $('#lb-subtitle').value.trim(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+    if (data.enabled && !data.amounts.some(a => a > 0))
+      return toast('Set at least one day reward above ₹0 — or turn the bonus off', 'err');
+    if (totalOf(data.amounts) > 100000) return toast('Cycle total looks unreasonably large', 'err');
+    const btn = $('#lb-save');
+    btn.classList.add('loading'); btn.disabled = true;
+    try {
+      await db.collection('appContent').doc('loginBonus').set(data, { merge: true });
+      toast('Login bonus saved — live in the user app instantly', 'ok');
+      renderLoginBonus();
+    } catch (e) {
+      btn.classList.remove('loading'); btn.disabled = false;
+      toast('Save failed — ' + (e && e.message ? e.message : 'try again'), 'err');
+    }
+  };
 }
