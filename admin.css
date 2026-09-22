@@ -311,3 +311,19 @@ body{font-family:'Outfit','Plus Jakarta Sans',system-ui,sans-serif}
   box-shadow:0 9px 20px rgba(124,58,237,.4),inset 0 1.5px 0 rgba(255,255,255,.4)}
 .ppv-soft{background:linear-gradient(135deg,#F5F3FF,#ECFEFF);color:var(--p1);
   box-shadow:inset 0 0 0 1.5px rgba(124,58,237,.22)}
+
+/* ═══════════ v28 — Plan banner images ═══════════ */
+/* thumbnail on the plan cards in the admin grid */
+.ap-banner{display:block;width:100%;max-height:150px;object-fit:cover;border-radius:12px;
+  margin-bottom:12px;border:1px solid var(--line)}
+
+/* upload widget inside the plan editor modal */
+.pf-img-wrap{display:flex;flex-direction:column;gap:8px;background:var(--bg);
+  border:1.5px dashed var(--line);border-radius:12px;padding:12px}
+.pf-img-preview{width:100%;max-height:150px;object-fit:cover;border-radius:10px;
+  border:1px solid var(--line)}
+.pf-img-row{display:flex;gap:8px;flex-wrap:wrap}
+
+/* full-width Plans-page banner manager */
+.pb-preview{display:block;width:100%;max-height:190px;object-fit:cover;border-radius:14px;
+  border:1px solid var(--line);box-shadow:var(--shadow)}
