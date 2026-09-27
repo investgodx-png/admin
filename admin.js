@@ -2112,7 +2112,7 @@ async function openChatAdmin(cid) {
         </div>
       </div>
       <div class="achat-msgs" id="ac-msgs"><div class="spinner"></div></div>
-      <div class="achat-closed hidden" id="ac-closed">This chat is ended — the user sees it as closed and can start a new one. Delete the thread to free storage.</div>
+      <div class="achat-closed hidden" id="ac-closed">This chat is ended — the user sees it in their chat history and can already start a new chat. Delete this thread to free storage.</div>
       <div class="achat-compose" id="ac-compose" style="flex-direction:column;align-items:stretch">
         <div class="ac-quick" id="ac-quick"></div>
         <div style="display:flex;gap:9px">
@@ -2268,10 +2268,11 @@ async function openChatAdmin(cid) {
     } catch (err) { toast('Could not attach — try again', 'err'); }
   };
 
-  $('#ac-end').onclick = () => confirmSheet('End this chat? The user will instantly see it as closed and can start a new one. Messages stay saved until you delete the chat.', async () => {
+  $('#ac-end').onclick = () => confirmSheet('End this chat? The user will instantly see it as ended in their chat history and can start a new chat. Messages stay saved until you delete the chat.', async () => {
     try {
       await db.collection('supportChats').doc(cid).update({
-        status: 'closed', endedAt: firebase.firestore.FieldValue.serverTimestamp() });
+        status: 'closed', endedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        userTyping: false, adminTyping: false });
       toast('Chat ended — user notified in real time', 'ok');
     } catch (e) { toast('Could not end chat — try again', 'err'); }
   });
