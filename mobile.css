@@ -1,0 +1,246 @@
+/* ═══════════════════════════════════════════════════════════════════
+   GODX ADMIN — Mobile App Shell 1.0 (Android-style)
+   Loaded AFTER admin.css. Everything lives inside @media(max-width:768px)
+   so the desktop experience is pixel-for-pixel unchanged.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* global touch polish (harmless on desktop) */
+button,.sb-item,.chat-row,.mn-item{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+
+/* ── Mobile shell pieces (hidden on desktop) ── */
+#m-topbar,#m-bottomnav,#sb-backdrop{display:none}
+
+@media(max-width:768px){
+
+  html{height:-webkit-fill-available}
+  body{min-height:100dvh}
+
+  /* ════ TOP APP BAR (Material 3) ════ */
+  #m-topbar{
+    display:flex;align-items:center;gap:12px;
+    position:fixed;top:0;left:0;right:0;z-index:100;
+    padding:calc(10px + env(safe-area-inset-top,0px)) 14px 10px;
+    background:linear-gradient(135deg,#0D081F 0%,#2A1866 55%,#5B21B6 100%);
+    color:#fff;box-shadow:0 6px 24px rgba(13,8,31,.35);
+  }
+  #m-burger{width:42px;height:42px;border-radius:14px;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;color:#fff;
+    background:rgba(255,255,255,.1);transition:.2s var(--ease)}
+  #m-burger:active{transform:scale(.9);background:rgba(255,255,255,.22)}
+  #m-burger svg{width:21px;height:21px}
+  .m-twrap{flex:1;min-width:0;display:flex;flex-direction:column}
+  .m-twrap b{font-family:var(--font-d);font-size:1.02rem;font-weight:800;
+    letter-spacing:-.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .m-twrap span{font-size:.62rem;font-weight:700;color:rgba(255,255,255,.65);
+    text-transform:uppercase;letter-spacing:.8px}
+  .m-chip{background:rgba(103,232,249,.16);color:#67E8F9;flex-shrink:0}
+
+  /* ════ NAVIGATION DRAWER (slides over content) ════ */
+  #sidebar{
+    position:fixed;left:0;top:0;bottom:0;height:100dvh;
+    width:min(300px,84vw);
+    transform:translateX(-106%);
+    transition:transform .38s cubic-bezier(.22,1,.36,1);
+    z-index:120;border-right:0;border-radius:0 26px 26px 0;
+    background:linear-gradient(168deg,#0D081F 0%,#2A1866 52%,#4C1D95 100%);
+    color:#fff;box-shadow:24px 0 60px rgba(13,8,31,.5);
+    padding:calc(16px + env(safe-area-inset-top,0px)) 14px calc(16px + env(safe-area-inset-bottom,0px));
+    overscroll-behavior:contain;
+  }
+  body.sb-open #sidebar{transform:none}
+  body.sb-open{overflow:hidden}
+  #sb-backdrop{display:block;position:fixed;inset:0;z-index:110;
+    background:rgba(8,4,22,.55);backdrop-filter:blur(3px);
+    opacity:0;pointer-events:none;transition:opacity .3s}
+  body.sb-open #sb-backdrop{opacity:1;pointer-events:auto}
+
+  /* restore full labels (overrides the 900px icon-rail rules) */
+  #sidebar .sb-brand{justify-content:flex-start;padding:6px 10px 18px;color:#fff}
+  #sidebar .sb-brand span{font-size:1.05rem}
+  #sidebar .sb-item{justify-content:flex-start;padding:12px 14px;font-size:.9rem;
+    color:rgba(255,255,255,.74);border-radius:14px}
+  #sidebar .sb-item span{font-size:.9rem}
+  #sidebar .sb-item .sb-ic{width:24px;height:24px}
+  #sidebar .sb-item:not(.active):hover{background:rgba(255,255,255,.09)}
+  #sidebar .sb-item:not(.active):active{background:rgba(255,255,255,.16)}
+  #sidebar .sb-item.active{background:linear-gradient(135deg,#7C3AED,#06B6D4);
+    color:#fff;box-shadow:0 10px 24px rgba(124,58,237,.45)}
+  #sidebar .sb-item .sb-badge{position:static;margin:0 0 0 auto;font-size:.62rem}
+  #sidebar .sb-logout{color:#FDA4AF;font-size:.9rem;margin-top:10px}
+  #sidebar .sb-logout span{font-size:.9rem}
+  #sb-nav{scrollbar-width:none}
+  #sb-nav::-webkit-scrollbar{display:none}
+
+  /* ════ BOTTOM NAVIGATION (Android / Material 3) ════ */
+  #m-bottomnav{
+    display:flex;position:fixed;left:0;right:0;bottom:0;z-index:100;
+    background:rgba(255,255,255,.94);backdrop-filter:blur(16px);
+    -webkit-backdrop-filter:blur(16px);
+    border-top:1px solid var(--line);
+    padding:6px 6px calc(8px + env(safe-area-inset-bottom,0px));
+    box-shadow:0 -8px 30px rgba(23,16,56,.1);
+  }
+  .mn-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+    padding:5px 0 2px;font-size:.6rem;font-weight:800;color:var(--sub);
+    border-radius:14px;transition:color .2s}
+  .mn-item .mn-ic{position:relative;width:52px;height:30px;border-radius:99px;
+    display:flex;align-items:center;justify-content:center;transition:.25s var(--ease)}
+  .mn-item .mn-ic svg{width:21px;height:21px}
+  .mn-item:active .mn-ic{background:rgba(124,58,237,.18);transform:scale(.94)}
+  .mn-item.active{color:var(--p1)}
+  .mn-item.active .mn-ic{background:rgba(124,58,237,.15);color:var(--p1)}
+  .mn-badge{position:absolute;top:-3px;right:6px;background:var(--red);color:#fff;
+    font-size:.56rem;font-weight:800;min-width:16px;height:16px;border-radius:99px;
+    display:none;align-items:center;justify-content:center;padding:0 4px;
+    font-style:normal;box-shadow:0 0 0 2px #fff}
+  .mn-badge.show{display:inline-flex}
+
+  /* ════ CONTENT AREA ════ */
+  #panel-top{display:none} /* replaced by the top app bar */
+  #panel-main{
+    padding:calc(76px + env(safe-area-inset-top,0px)) 13px calc(96px + env(safe-area-inset-bottom,0px));
+  }
+  .page{animation:fadeUp .3s var(--ease)}
+
+  /* stat cards — 2-up compact grid */
+  .stat-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:16px}
+  .sc{padding:14px;border-radius:16px}
+  .sc b{font-size:1.05rem;margin-top:5px}
+  .sc:hover{transform:none}
+  .sc-hero{grid-column:1 / -1}
+
+  /* plan / method cards — single column */
+  .plan-grid{grid-template-columns:1fr;gap:12px}
+  .ap-card{padding:16px;border-radius:16px}
+
+  /* tables — edge-to-edge cards with momentum scroll */
+  .tbl-card{border-radius:16px;margin-bottom:14px}
+  .tbl-head{padding:13px 14px;gap:8px}
+  .tbl-head h3{font-size:.9rem}
+  .tbl-scroll{-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .tbl-scroll::-webkit-scrollbar{display:none}
+  table{min-width:600px;font-size:.78rem}
+  th,td{padding-left:14px;padding-right:14px}
+  .search-in{width:100%;font-size:16px} /* 16px stops iOS zoom-on-focus */
+  .tbl-actions{flex-wrap:nowrap}
+  .btn{min-height:42px}
+  .btn-sm{min-height:36px;padding:8px 12px}
+  input,select,textarea{font-size:16px} /* no focus-zoom on mobile */
+
+  /* ════ MODALS → bottom sheets (Android style) ════ */
+  .modal-back{padding:0;align-items:flex-end}
+  .modal{max-width:100%;border-radius:26px 26px 0 0;max-height:92dvh;
+    padding:10px 18px calc(24px + env(safe-area-inset-bottom,0px));
+    animation:sheetUp .34s cubic-bezier(.22,1,.36,1)}
+  @keyframes sheetUp{from{transform:translateY(70px);opacity:.35}to{transform:none;opacity:1}}
+  .modal::before{content:'';display:block;width:46px;height:5px;border-radius:99px;
+    background:#E2E8F0;margin:2px auto 14px}
+  .frow input,.frow textarea,.frow select{font-size:16px}
+  .proof-img.zoom{transform:scale(1.35)}
+
+  /* ════ SUPPORT CHAT — app-like thread ════ */
+  .chat-row{padding:13px 14px;gap:11px}
+  .cr-avatar{width:42px;height:42px;border-radius:13px}
+  .achat-head{padding:12px 13px;gap:9px}
+  .achat-msgs{height:calc(100dvh - 348px);min-height:260px;padding:14px 12px;gap:9px}
+  .chat-msg{max-width:84%;font-size:.86rem}
+  .chat-img{max-width:200px}
+  .achat-compose{padding:10px 12px;gap:8px;position:sticky;bottom:0}
+  .achat-compose .btn{padding:10px 14px}
+  .ac-quick{padding:8px 12px 0}
+
+  /* ════ TOASTS above the bottom nav ════ */
+  #toast-root{top:auto;bottom:calc(88px + env(safe-area-inset-bottom,0px));
+    left:14px;right:14px;align-items:stretch;max-width:none}
+  .toast{max-width:none;text-align:center;border-radius:16px}
+  @keyframes tin{from{opacity:0;transform:translateY(18px)}}
+
+  /* login card */
+  #login-view{padding:16px}
+  .login-card{padding:28px 20px;border-radius:22px}
+
+  /* popup preview grid already stacks; keep previews centered */
+  .ppv-card{margin:0 auto}
+}
+
+/* very small phones */
+@media(max-width:360px){
+  .sc b{font-size:.95rem}
+  .m-twrap b{font-size:.92rem}
+}
+
+/* ══════════════════════════════════════════════════════════════
+   v37 — FULL mobile-responsiveness pass (admin panel)
+   Fixes: forms not saving (buttons unreachable / covered), tables,
+   modals, grids, and every admin page on phones ≤768px.
+   ══════════════════════════════════════════════════════════════ */
+html{-webkit-text-size-adjust:100%}
+
+@media(max-width:768px){
+
+  /* ── MODALS: always above top bar (100) & bottom nav (100),
+        scrollable, buttons never hidden behind the nav bar ── */
+  .modal-back{z-index:150;padding:0;align-items:flex-end}
+  .modal{max-width:100%;width:100%;border-radius:26px 26px 0 0;
+    max-height:92dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    padding:10px 18px calc(24px + env(safe-area-inset-bottom,0px))}
+  /* modal action rows: buttons stack full-width so Save is ALWAYS tappable */
+  .modal [style*='display:flex'][style*='gap']{flex-wrap:wrap}
+  .modal .btn{min-height:46px;font-size:.9rem}
+
+  /* ── FORMS: every row full-width, inputs iOS-zoom-proof ── */
+  .frow2{grid-template-columns:1fr}
+  .field-in,.frow input,.frow textarea,.frow select,
+  .login-card input{width:100%;font-size:16px;min-height:46px}
+  textarea.field-in{min-height:96px}
+  label.gxswitch, .gxswitch{transform:scale(1.12);transform-origin:right center}
+
+  /* ── PAGE HEADERS: title + actions wrap cleanly ── */
+  .tbl-head{gap:10px}
+  .tbl-head .btn{flex:1 1 auto;justify-content:center}
+
+  /* ── TABLES: scroll hint + comfortable cells ── */
+  .tbl-scroll{position:relative}
+  table{min-width:620px}
+  td .btn-sm,.tbl-actions .btn{min-height:40px}
+
+  /* ── DASHBOARD quick actions: 2-up grid ── */
+  #page-dashboard [style*='display:flex'][style*='flex-wrap'] .btn{flex:1 1 44%}
+
+  /* ── PLAN / PAYMENT / POPUP / CHART editors ── */
+  .plan-grid{grid-template-columns:1fr}
+  .ap-actions{flex-wrap:nowrap}
+  .ap-actions .btn{flex:1}
+  .pop-grid{grid-template-columns:1fr}
+  .ppv-card{margin:0 auto}
+  .pf-img-row .btn{flex:1}
+
+  /* ── USERS page: search full width ── */
+  #u-search{width:100%}
+
+  /* ── SUPPORT CHAT admin thread — true app feel ── */
+  .achat-head{position:sticky;top:0;background:#fff;z-index:5}
+  .achat-head .cr-mid small{white-space:normal}
+  .achat-msgs{height:calc(100dvh - 330px);min-height:240px;overscroll-behavior:contain}
+  .achat-compose{position:sticky;bottom:0;background:#fff;z-index:5;
+    padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
+  .achat-compose .field-in{font-size:16px}
+  .ac-quick{overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none}
+  .ac-quick::-webkit-scrollbar{display:none}
+  .ac-quick button{flex-shrink:0}
+
+  /* ── PROOF / BANK modals ── */
+  .proof-img{max-width:100%;height:auto}
+  .kv{grid-template-columns:auto 1fr;font-size:.8rem}
+
+  /* ── LOGIN BONUS day-grid & share platform chips wrap ── */
+  #lb-days-grid .frow{margin-bottom:10px}
+
+  /* ── Toasts never cover modal save buttons ── */
+  #toast-root{z-index:300}
+}
+
+/* landscape phones: keep the chat usable */
+@media(max-width:768px) and (orientation:landscape){
+  .achat-msgs{height:calc(100dvh - 240px)}
+}
